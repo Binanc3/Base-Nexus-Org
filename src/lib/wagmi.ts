@@ -3,7 +3,8 @@ import { base } from 'wagmi/chains';
 import { coinbaseWallet, injected } from 'wagmi/connectors';
 
 // Base Builder Code (ERC-8021)
-export const BASE_BUILDER_CODE = '0x0762000000000000000000000000000000000000000000000000000000008021';
+// Get yours at: https://base.org/builders
+export const BASE_BUILDER_CODE = (import.meta.env.VITE_BASE_BUILDER_CODE || '0x0762000000000000000000000000000000000000000000000000000000008021') as `0x${string}`;
 
 export const config = createConfig({
   chains: [base],
@@ -23,6 +24,6 @@ export const config = createConfig({
     }),
   ],
   transports: {
-    [base.id]: http(),
+    [base.id]: http(import.meta.env.VITE_BASE_RPC_URL || undefined),
   },
 });
