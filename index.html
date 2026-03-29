@@ -15,6 +15,27 @@
     <meta name="twitter:card" content="summary_large_image" />
     
     <title>BaseNexus | Base Ecosystem dApp</title>
+    <script>
+      // Guard against libraries trying to overwrite read-only window.fetch
+      // This is common in some sandboxed environments or with certain polyfills
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          if (originalFetch) {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function() { return originalFetch; },
+              set: function(v) { 
+                console.warn('Attempted to overwrite fetch, ignoring to prevent crash:', v); 
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('Could not redefine fetch property:', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

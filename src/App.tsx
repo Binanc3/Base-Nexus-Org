@@ -42,6 +42,21 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [isMiniApp, setIsMiniApp] = useState(false);
+
+  useEffect(() => {
+    // Detect if running inside an iframe (common for Mini Apps)
+    if (window.self !== window.top) {
+      setIsMiniApp(true);
+    }
+  }, []);
+
+  const handleCloseApp = () => {
+    // Standard way to signal to host app to close
+    window.parent.postMessage({ type: 'close' }, '*');
+    // Fallback for some environments
+    window.close();
+  };
 
   const handleGameComplete = async (game: string, score: number) => {
     setLastScore({ game, score });
@@ -185,6 +200,16 @@ function MainApp() {
               <span className="font-medium">{tab.label}</span>
             </button>
           ))}
+          
+          {isMiniApp && (
+            <button
+              onClick={handleCloseApp}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 transition-all mt-4"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="font-medium">Close App</span>
+            </button>
+          )}
         </nav>
 
         <div className="p-4 bg-white/5 rounded-2xl border border-white/10">

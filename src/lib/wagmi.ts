@@ -11,17 +11,9 @@ export const config = createConfig({
   connectors: [
     coinbaseWallet({ 
       appName: 'BaseNexus',
-      preference: 'all', // Support both Smart Wallet and EOA
+      preference: 'smartWalletOnly', // Standard for Base Mini Apps
     }),
-    injected({
-      target: 'metaMask',
-    }),
-    injected({
-      target: 'rabby',
-    }),
-    injected({
-      target: 'zerion',
-    }),
+    injected(),
   ],
   transports: {
     [base.id]: http(import.meta.env.VITE_BASE_RPC_URL || undefined),

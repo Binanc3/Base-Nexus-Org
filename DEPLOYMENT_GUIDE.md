@@ -15,9 +15,22 @@ Add these to **AI Studio Settings > Secrets** (click the gear icon in the top ri
 | :--- | :--- | :--- |
 | `VITE_SUPABASE_URL` | Your Supabase Project URL | [Supabase](https://supabase.com) |
 | `VITE_SUPABASE_ANON_KEY` | Your Supabase Anon Public Key | [Supabase](https://supabase.com) |
+| `VITE_ONCHAINKIT_API_KEY` | Powers Base Mini App features | [OnchainKit](https://onchainkit.xyz) |
 | `GEMINI_API_KEY` | Powers the "Base AI" features | [Google AI Studio](https://aistudio.google.com/app/apikey) |
 | `VITE_BASE_BUILDER_CODE` | Your unique onchain developer ID | [Base Builders Portal](https://base.org/builders) |
 | `VITE_BASE_RPC_URL` | *Optional* - Your personal Base RPC | [Alchemy](https://www.alchemy.com/) or [QuickNode](https://www.quicknode.com/) |
+
+---
+
+## 📱 Base Mini App Registration
+
+To make **BaseNexus** appear in the **Base App** discovery and function as a native miniapp:
+
+1.  **Register on Base.dev**: Go to [Base.dev](https://base.dev) and create a new project.
+2.  **App URL**: Use your Vercel deployment URL (e.g., `https://basenexus.vercel.app`).
+3.  **Manifest**: Ensure your `public/manifest.json` is correctly configured (already done in the codebase).
+4.  **Smart Wallet**: Base Mini Apps require the **Coinbase Smart Wallet**. The codebase is already optimized for this via `wagmi` and `OnchainKit`.
+5.  **OnchainKit**: Get an API key from [onchainkit.xyz](https://onchainkit.xyz) and add it to your environment variables as `VITE_ONCHAINKIT_API_KEY`.
 
 ---
 
@@ -102,6 +115,7 @@ If you are deploying to **Vercel**, follow these steps:
 2.  **Environment Variables**: In the Vercel dashboard, go to **Settings > Environment Variables** and add:
     *   `VITE_SUPABASE_URL` (Your Supabase Project URL)
     *   `VITE_SUPABASE_ANON_KEY` (Your Supabase Anon Public Key)
+    *   `VITE_ONCHAINKIT_API_KEY` (Your OnchainKit API Key)
     *   `GEMINI_API_KEY`
     *   `VITE_BASE_BUILDER_CODE`
     *   `VITE_BASE_RPC_URL` (Optional)
