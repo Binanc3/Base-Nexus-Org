@@ -1,9 +1,8 @@
 import { http, createConfig } from 'wagmi';
 import { base } from 'wagmi/chains';
-import { coinbaseWallet } from 'wagmi/connectors';
+import { coinbaseWallet, injected } from 'wagmi/connectors';
 
 // Base Builder Code (ERC-8021)
-// Replace with your actual code from base.dev
 export const BASE_BUILDER_CODE = '0x0762000000000000000000000000000000000000000000000000000000008021';
 
 export const config = createConfig({
@@ -11,7 +10,16 @@ export const config = createConfig({
   connectors: [
     coinbaseWallet({ 
       appName: 'BaseNexus',
-      preference: 'smartWalletOnly'
+      preference: 'all', // Support both Smart Wallet and EOA
+    }),
+    injected({
+      target: 'metaMask',
+    }),
+    injected({
+      target: 'rabby',
+    }),
+    injected({
+      target: 'zerion',
     }),
   ],
   transports: {

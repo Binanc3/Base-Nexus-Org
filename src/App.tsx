@@ -40,17 +40,16 @@ function MainApp() {
   const { sendTransaction } = useSendTransaction();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   const handleGameComplete = async (game: string, score: number) => {
-    if (!address) return;
-    
     setLastScore({ game, score });
     
-    // 1. Save to Firestore for Leaderboard
+    // 1. Save to Firestore for Leaderboard (Anonymous or Auth)
     try {
       await addDoc(collection(db, 'leaderboards'), {
         gameId: game,
-        userAddress: address,
+        userAddress: address || 'Guest',
         score: score,
         timestamp: serverTimestamp()
       });
@@ -58,14 +57,15 @@ function MainApp() {
       console.error("Error saving to leaderboard:", error);
     }
 
-    // 2. Log score onchain with Base Builder Code attribution
-    // We send a 0 ETH transaction to self with the score in the data field
-    const scoreData = stringToHex(`SCORE:${game}:${score}`);
-    sendTransaction({
-      to: address,
-      value: 0n,
-      data: `${scoreData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
-    });
+    // 2. Log score onchain ONLY if connected
+    if (address && isConnected) {
+      const scoreData = stringToHex(`SCORE:${game}:${score}`);
+      sendTransaction({
+        to: address,
+        value: 0n,
+        data: `${scoreData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+      });
+    }
   };
 
   const tabs = [
@@ -79,44 +79,52 @@ function MainApp() {
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
-  if (!isConnected) {
-    return (
-      <div className="min-h-screen bg-[#050b18] flex items-center justify-center p-4">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[120px] rounded-full" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 blur-[120px] rounded-full" />
-        </div>
-        
-        <GlassCard className="max-w-md w-full p-8 text-center relative z-10">
-          <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-2xl shadow-blue-500/40">
-            <Shield className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">BaseNexus</h1>
-          <p className="text-white/60 mb-8 leading-relaxed">
-            The ultimate workspace for the Base ecosystem. Games, swaps, AI, and developer tools in one glassmorphic interface.
-          </p>
-          <div className="space-y-3">
-            {connectors.map((connector) => (
-              <Button 
-                key={connector.id} 
-                onClick={() => connect({ connector })}
-                className="w-full py-4 text-lg flex items-center justify-center gap-3"
-              >
-                <Wallet className="w-6 h-6" />
-                Connect Wallet
-              </Button>
-            ))}
-          </div>
-          <p className="text-xs text-white/40 mt-6">
-            By connecting, you agree to interact with the Base Mainnet.
-          </p>
-        </GlassCard>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#050b18] text-white flex flex-col lg:flex-row">
+      {/* Connect Modal Overlay */}
+      <AnimatePresence>
+        {showConnectModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+          >
+            <GlassCard className="max-w-md w-full p-8 text-center relative">
+              <button 
+                onClick={() => setShowConnectModal(false)}
+                className="absolute top-4 right-4 text-white/40 hover:text-white"
+              >
+                <LogOut className="w-5 h-5 rotate-180" />
+              </button>
+              <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center">
+                <Wallet className="w-8 h-8 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Connect Wallet</h2>
+              <p className="text-white/60 mb-8 text-sm">Choose a wallet to unlock onchain features like Swaps, Wall Posts, and Score Logging.</p>
+              <div className="space-y-3">
+                {connectors.map((connector) => (
+                  <Button 
+                    key={connector.id} 
+                    onClick={() => {
+                      connect({ connector });
+                      setShowConnectModal(false);
+                    }}
+                    className="w-full py-4 flex items-center justify-between px-6 group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Wallet className="w-5 h-5 text-blue-400" />
+                      <span className="font-bold">{connector.name}</span>
+                    </div>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                  </Button>
+                ))}
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Sidebar - Desktop */}
       <aside className="hidden lg:flex w-72 border-r border-white/10 p-6 flex-col gap-8 bg-black/20 backdrop-blur-xl">
         <div className="flex items-center gap-3 px-2">
@@ -145,13 +153,25 @@ function MainApp() {
         </nav>
 
         <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-white/40 uppercase tracking-wider">Wallet</span>
-            <Button variant="ghost" className="p-1 h-auto" onClick={() => disconnect()}>
-              <LogOut className="w-4 h-4 text-red-400" />
+          {isConnected ? (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-white/40 uppercase tracking-wider">Wallet</span>
+                <Button variant="ghost" className="p-1 h-auto" onClick={() => disconnect()}>
+                  <LogOut className="w-4 h-4 text-red-400" />
+                </Button>
+              </div>
+              <p className="text-sm font-mono truncate">{address}</p>
+            </>
+          ) : (
+            <Button 
+              onClick={() => setShowConnectModal(true)}
+              className="w-full py-2 text-sm flex items-center justify-center gap-2"
+            >
+              <Wallet className="w-4 h-4" />
+              Connect Wallet
             </Button>
-          </div>
-          <p className="text-sm font-mono truncate">{address}</p>
+          )}
         </div>
       </aside>
 

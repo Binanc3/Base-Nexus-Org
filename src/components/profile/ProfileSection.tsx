@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare } from 'lucide-react';
+import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare, Globe } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { motion } from 'motion/react';
 import { db } from '../../firebase';

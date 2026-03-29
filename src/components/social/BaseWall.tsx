@@ -99,14 +99,24 @@ export function BaseWall() {
           </div>
         </div>
 
-        <form onSubmit={handlePost} className="space-y-4">
+        <form onSubmit={handlePost} className="space-y-4 relative">
+          {!address && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-2xl border border-white/5">
+              <div className="text-center p-6">
+                <ShieldCheck className="w-8 h-8 text-blue-400 mx-auto mb-3 opacity-50" />
+                <p className="text-sm text-white font-medium mb-4">Connect your wallet to leave a message on the wall.</p>
+                <p className="text-xs text-white/40 italic">Your message will be stored onchain & offchain.</p>
+              </div>
+            </div>
+          )}
           <div className="relative">
             <textarea
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder="What's on your mind? (Max 280 characters)"
               maxLength={280}
-              className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder:text-white/20 outline-none focus:border-blue-500/50 transition-all resize-none h-32"
+              disabled={!address}
+              className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder:text-white/20 outline-none focus:border-blue-500/50 transition-all resize-none h-32 disabled:opacity-50"
             />
             <div className="absolute bottom-4 right-4 text-[10px] text-white/20 font-mono">
               {newMessage.length}/280
@@ -154,32 +164,34 @@ export function BaseWall() {
                       <User className="w-5 h-5 text-blue-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-white truncate max-w-[120px]">
-                            {msg.userAddress.substring(0, 6)}...{msg.userAddress.substring(38)}
-                          </span>
-                          {msg.userAddress === address && (
-                            <span className="px-1.5 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-bold rounded uppercase tracking-tighter">You</span>
-                          )}
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white truncate max-w-[120px]">
+                              {msg.userAddress === 'Guest' ? 'Guest Explorer' : `${msg.userAddress.substring(0, 6)}...${msg.userAddress.substring(38)}`}
+                            </span>
+                            {msg.userAddress === address && address && (
+                              <span className="px-1.5 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-bold rounded uppercase tracking-tighter">You</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-white/20">
+                            <Clock className="w-3 h-3" />
+                            {msg.timestamp?.toDate ? new Date(msg.timestamp.toDate()).toLocaleDateString() : 'Just now'}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-[10px] text-white/20">
-                          <Clock className="w-3 h-3" />
-                          {msg.timestamp?.toDate ? new Date(msg.timestamp.toDate()).toLocaleDateString() : 'Just now'}
-                        </div>
-                      </div>
                       <p className="text-sm text-white/80 leading-relaxed break-words">
                         {msg.content}
                       </p>
                       <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
                         <div className="flex gap-3">
-                          <button 
-                            onClick={() => window.open(`https://basescan.org/${msg.txHash ? 'tx/' + msg.txHash : 'address/' + msg.userAddress}`, '_blank')}
-                            className="text-[10px] text-white/20 hover:text-blue-400 transition-colors flex items-center gap-1"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            {msg.txHash ? 'View Transaction' : 'View Profile'}
-                          </button>
+                          {msg.userAddress !== 'Guest' && (
+                            <button 
+                              onClick={() => window.open(`https://basescan.org/${msg.txHash ? 'tx/' + msg.txHash : 'address/' + msg.userAddress}`, '_blank')}
+                              className="text-[10px] text-white/20 hover:text-blue-400 transition-colors flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              {msg.txHash ? 'View Transaction' : 'View Profile'}
+                            </button>
+                          )}
                         </div>
                         <div className="text-[9px] text-white/10 font-mono">
                           ID: {msg.id.substring(0, 8)}
