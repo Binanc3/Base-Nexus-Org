@@ -383,16 +383,25 @@ function MainApp() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-bold mb-4">Fruit Ninja</h3>
-                      <SlicingGame onComplete={(s) => handleGameComplete('FruitNinja', s)} />
+                      <SlicingGame 
+                        onComplete={(s) => handleGameComplete('FruitNinja', s)} 
+                        onExit={() => setActiveTab('dashboard')}
+                      />
                     </GlassCard>
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-bold mb-4">Base Runner</h3>
-                      <EndlessRunner onComplete={(s) => handleGameComplete('BaseRunner', s)} />
+                      <EndlessRunner 
+                        onComplete={(s) => handleGameComplete('BaseRunner', s)} 
+                        onExit={() => setActiveTab('dashboard')}
+                      />
                     </GlassCard>
                   </div>
                   <GlassCard className="p-6 max-w-2xl mx-auto">
                     <h3 className="text-xl font-bold mb-4">Base Invaders</h3>
-                    <BaseInvaders onComplete={(s) => handleGameComplete('BaseInvaders', s)} />
+                    <BaseInvaders 
+                      onComplete={(s) => handleGameComplete('BaseInvaders', s)} 
+                      onExit={() => setActiveTab('dashboard')}
+                    />
                   </GlassCard>
                 </div>
               )}
