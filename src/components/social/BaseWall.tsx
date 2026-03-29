@@ -3,8 +3,7 @@ import { GlassCard, Button } from '../ui/GlassUI';
 import { MessageSquare, Send, Loader2, User, Clock, ExternalLink, ShieldCheck } from 'lucide-react';
 import { useAccount, useSendTransaction } from 'wagmi';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, auth } from '../../firebase';
-import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '@/src/supabase';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 import { cn } from '@/src/lib/utils';
@@ -12,10 +11,10 @@ import { cn } from '@/src/lib/utils';
 interface Message {
   id: string;
   content: string;
-  userAddress: string;
-  userId: string;
-  timestamp: any;
-  txHash?: string;
+  user_address: string;
+  user_id: string;
+  created_at: string;
+  tx_hash?: string;
 }
 
 export function BaseWall() {
@@ -26,26 +25,41 @@ export function BaseWall() {
   const [isPosting, setIsPosting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const q = query(
-      collection(db, 'messages'),
-      orderBy('timestamp', 'desc'),
-      limit(50)
-    );
+  const fetchMessages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Message[];
-      setMessages(data);
-      setIsLoading(false);
-    }, (error) => {
+      if (error) throw error;
+      setMessages(data || []);
+    } catch (error) {
       console.error("Error fetching messages:", error);
+    } finally {
       setIsLoading(false);
-    });
+    }
+  };
 
-    return () => unsubscribe();
+  useEffect(() => {
+    fetchMessages();
+
+    // Real-time subscription
+    const channel = supabase
+      .channel('wall_changes')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages' 
+      }, () => {
+        fetchMessages();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handlePost = async (e: React.FormEvent) => {
@@ -69,14 +83,18 @@ export function BaseWall() {
         console.warn("Onchain logging skipped or failed:", txError);
       }
 
-      // 2. Save to Firestore
-      await addDoc(collection(db, 'messages'), {
-        content: newMessage.trim(),
-        userAddress: address,
-        userId: auth.currentUser?.uid,
-        timestamp: serverTimestamp(),
-        ...(txHash && { txHash })
-      });
+      // 2. Save to Supabase
+      const { error } = await supabase
+        .from('messages')
+        .insert([
+          {
+            content: newMessage.trim(),
+            user_address: address,
+            tx_hash: txHash || null
+          }
+        ]);
+
+      if (error) throw error;
 
       setNewMessage('');
     } catch (error) {
@@ -167,15 +185,15 @@ export function BaseWall() {
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-white truncate max-w-[120px]">
-                              {msg.userAddress === 'Guest' ? 'Guest Explorer' : `${msg.userAddress.substring(0, 6)}...${msg.userAddress.substring(38)}`}
+                              {msg.user_address === 'Guest' ? 'Guest Explorer' : `${msg.user_address.substring(0, 6)}...${msg.user_address.substring(38)}`}
                             </span>
-                            {msg.userAddress === address && address && (
+                            {msg.user_address === address && address && (
                               <span className="px-1.5 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-bold rounded uppercase tracking-tighter">You</span>
                             )}
                           </div>
                           <div className="flex items-center gap-2 text-[10px] text-white/20">
                             <Clock className="w-3 h-3" />
-                            {msg.timestamp?.toDate ? new Date(msg.timestamp.toDate()).toLocaleDateString() : 'Just now'}
+                            {msg.created_at ? new Date(msg.created_at).toLocaleDateString() : 'Just now'}
                           </div>
                         </div>
                       <p className="text-sm text-white/80 leading-relaxed break-words">
@@ -183,13 +201,13 @@ export function BaseWall() {
                       </p>
                       <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
                         <div className="flex gap-3">
-                          {msg.userAddress !== 'Guest' && (
+                          {msg.user_address !== 'Guest' && (
                             <button 
-                              onClick={() => window.open(`https://basescan.org/${msg.txHash ? 'tx/' + msg.txHash : 'address/' + msg.userAddress}`, '_blank')}
+                              onClick={() => window.open(`https://basescan.org/${msg.tx_hash ? 'tx/' + msg.tx_hash : 'address/' + msg.user_address}`, '_blank')}
                               className="text-[10px] text-white/20 hover:text-blue-400 transition-colors flex items-center gap-1"
                             >
                               <ExternalLink className="w-3 h-3" />
-                              {msg.txHash ? 'View Transaction' : 'View Profile'}
+                              {msg.tx_hash ? 'View Transaction' : 'View Profile'}
                             </button>
                           )}
                         </div>

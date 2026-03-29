@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2 } from 'lucide-react';
+import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2, Info } from 'lucide-react';
 import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { base } from 'wagmi/chains';
+import { supabase } from '../../supabase';
 
 import { cn } from '@/src/lib/utils';
 
@@ -133,6 +134,19 @@ export function ContractDeployer() {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         const address = receipt.contractAddress || '0x...';
         setDeployedAddress(address);
+        
+        // Save to Supabase
+        try {
+          await supabase.from('deployments').insert([{
+            user_address: userAddress,
+            contract_address: address,
+            contract_type: contractType,
+            tx_hash: hash
+          }]);
+        } catch (err) {
+          console.error("Error logging deployment to Supabase:", err);
+        }
+
         saveToHistory({
           address,
           name: formData.name,
@@ -276,9 +290,18 @@ export function ContractDeployer() {
               </div>
             ) : (
               <div className="space-y-2">
-                <label className="text-sm text-white/60">Base URI</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-white/60">Base URI</label>
+                  <div className="group relative">
+                    <Info className="w-3 h-3 text-white/20 cursor-help" />
+                    <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-black/90 border border-white/10 rounded-xl text-[10px] text-white/60 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                      The Base URI is the folder URL where your NFT metadata (JSON files) is hosted. 
+                      Example: <span className="text-blue-400">ipfs://Qm.../</span> or <span className="text-blue-400">https://api.myapp.com/metadata/</span>
+                    </div>
+                  </div>
+                </div>
                 <input 
-                  placeholder="e.g. https://api.nexus.com/metadata/"
+                  placeholder="e.g. ipfs://Qm.../"
                   className={cn(
                     "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
                     errors.baseUri ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"

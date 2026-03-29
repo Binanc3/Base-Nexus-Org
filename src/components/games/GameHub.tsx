@@ -3,31 +3,49 @@ import { GlassCard, Button } from '../ui/GlassUI';
 import { Sword, Play, Trophy, Loader2, Medal, Rocket } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/src/lib/utils';
-import { db } from '../../firebase';
-import { collection, query, where, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '@/src/supabase';
 
 export function Leaderboard({ gameId }: { gameId: string }) {
   const [entries, setEntries] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'leaderboards'),
-      where('gameId', '==', gameId),
-      orderBy('score', 'desc'),
-      limit(10)
-    );
+    const fetchLeaderboard = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('leaderboards')
+          .select('*')
+          .eq('game_id', gameId)
+          .order('score', { ascending: false })
+          .limit(10);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEntries(data);
-      setIsLoading(false);
-    }, (error) => {
-      console.error("Leaderboard error:", error);
-      setIsLoading(false);
-    });
+        if (error) throw error;
+        setEntries(data || []);
+      } catch (error) {
+        console.error("Leaderboard error:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchLeaderboard();
+
+    // Real-time subscription
+    const channel = supabase
+      .channel('leaderboard_changes')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'leaderboards',
+        filter: `game_id=eq.${gameId}`
+      }, () => {
+        fetchLeaderboard();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [gameId]);
 
   return (
@@ -57,7 +75,7 @@ export function Leaderboard({ gameId }: { gameId: string }) {
                   {i + 1}
                 </span>
                 <span className="text-xs font-mono text-white/80">
-                  {entry.userAddress.substring(0, 6)}...{entry.userAddress.substring(38)}
+                  {entry.user_address.substring(0, 6)}...{entry.user_address.substring(38)}
                 </span>
               </div>
               <span className="text-xs font-bold text-blue-400">{entry.score}</span>
@@ -87,10 +105,10 @@ export function SlicingGame({ onComplete }: { onComplete: (score: number) => voi
           id: Date.now(),
           x: Math.random() * 80 + 10,
           y: 100,
-          type: ['🍎', '🍊', '🍉', '🍍'][Math.floor(Math.random() * 4)]
+          type: ['🍎', '🍊', '🍉', '🍍', '🍓', '🥝'][Math.floor(Math.random() * 6)]
         }
       ]);
-    }, 1000);
+    }, 800);
     return () => clearInterval(interval);
   }, [isPlaying, isGameOver]);
 
@@ -129,8 +147,15 @@ export function SlicingGame({ onComplete }: { onComplete: (score: number) => voi
       <div className="relative h-[400px] w-full bg-slate-900 rounded-xl overflow-hidden cursor-crosshair" ref={gameRef}>
         {!isPlaying && !isGameOver ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
-            <Sword className="w-16 h-16 text-blue-400 mb-4" />
-            <h3 className="text-2xl font-bold text-white mb-4">Fruit Slicer</h3>
+            <div className="relative mb-4">
+              <Sword className="w-16 h-16 text-blue-400 animate-pulse" />
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-0 border-2 border-dashed border-blue-500/30 rounded-full scale-150"
+              />
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-4 tracking-tighter uppercase">Fruit Ninja</h3>
             <p className="text-white/40 text-sm mb-6">Slice the fruit! Don't let them fall.</p>
             <Button onClick={() => { setIsPlaying(true); setIsGameOver(false); setScore(0); setCombo(0); }}>Start Game</Button>
           </div>
@@ -185,7 +210,7 @@ export function SlicingGame({ onComplete }: { onComplete: (score: number) => voi
           </>
         )}
       </div>
-      <Leaderboard gameId="FruitSlicer" />
+      <Leaderboard gameId="FruitNinja" />
     </div>
   );
 }
@@ -236,8 +261,15 @@ export function EndlessRunner({ onComplete }: { onComplete: (score: number) => v
       <div className="relative h-[200px] w-full bg-slate-800 rounded-xl overflow-hidden" onClick={jump}>
         {!isPlaying && !isGameOver ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
-            <Play className="w-12 h-12 text-green-400 mb-2" />
-            <h3 className="text-xl font-bold text-white mb-2">Base Runner</h3>
+            <div className="relative mb-4">
+              <Play className="w-12 h-12 text-green-400 fill-green-400/20" />
+              <motion.div 
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="absolute inset-0 bg-green-500/10 rounded-full blur-xl"
+              />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2 tracking-tight">Base Runner</h3>
             <p className="text-white/40 text-xs mb-4">Click to jump over obstacles!</p>
             <Button onClick={() => { setIsPlaying(true); setIsGameOver(false); setScore(0); setObstacles([]); }}>Start</Button>
           </div>
@@ -378,8 +410,11 @@ export function BaseInvaders({ onComplete }: { onComplete: (score: number) => vo
       >
         {!isPlaying && !isGameOver ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
-            <Rocket className="w-16 h-16 text-blue-400 mb-4 animate-bounce" />
-            <h3 className="text-2xl font-bold text-white mb-2">Base Invaders</h3>
+            <div className="relative mb-6">
+              <Rocket className="w-16 h-16 text-blue-400 animate-bounce" />
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-blue-500/40 blur-sm rounded-full" />
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-2 tracking-tighter uppercase">Base Invaders</h3>
             <p className="text-white/40 text-sm mb-6">Protect Base from the FUD! Click to shoot.</p>
             <Button onClick={startGame}>Start Mission</Button>
           </div>

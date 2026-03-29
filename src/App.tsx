@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
@@ -25,13 +25,14 @@ import {
   Trophy,
   User,
   Sparkles,
-  Globe
+  Globe,
+  Zap,
+  Activity
 } from 'lucide-react';
 import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
 
-import { db } from './firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from './supabase';
 
 function MainApp() {
   const { address, isConnected } = useAccount();
@@ -45,14 +46,19 @@ function MainApp() {
   const handleGameComplete = async (game: string, score: number) => {
     setLastScore({ game, score });
     
-    // 1. Save to Firestore for Leaderboard (Anonymous or Auth)
+    // 1. Save to Supabase for Leaderboard
     try {
-      await addDoc(collection(db, 'leaderboards'), {
-        gameId: game,
-        userAddress: address || 'Guest',
-        score: score,
-        timestamp: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('leaderboards')
+        .insert([
+          { 
+            game_id: game, 
+            user_address: address || 'Guest', 
+            score: score 
+          }
+        ]);
+      
+      if (error) throw error;
     } catch (error) {
       console.error("Error saving to leaderboard:", error);
     }
@@ -67,6 +73,35 @@ function MainApp() {
       });
     }
   };
+
+  const [globalStats, setGlobalStats] = useState({
+    users: 0,
+    actions: 0,
+    games: 0,
+    messages: 0
+  });
+
+  useEffect(() => {
+    const fetchGlobalStats = async () => {
+      try {
+        const { count: userCount } = await supabase.from('leaderboards').select('user_address', { count: 'exact', head: true });
+        const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true });
+        const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
+        const { count: deployCount } = await supabase.from('deployments').select('*', { count: 'exact', head: true });
+        const { count: checkinCount } = await supabase.from('checkins').select('*', { count: 'exact', head: true });
+
+        setGlobalStats({
+          users: userCount || 0,
+          actions: (gameCount || 0) + (messageCount || 0) + (deployCount || 0) + (checkinCount || 0),
+          games: gameCount || 0,
+          messages: messageCount || 0
+        });
+      } catch (err) {
+        console.error("Error fetching global stats:", err);
+      }
+    };
+    fetchGlobalStats();
+  }, []);
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -221,22 +256,84 @@ function MainApp() {
               transition={{ duration: 0.2 }}
             >
               {activeTab === 'dashboard' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <GlassCard className="p-6">
-                    <h3 className="text-white/60 text-sm mb-4">Network Status</h3>
-                    <div className="flex items-center gap-2 text-green-400">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                      <span className="font-bold">Base Mainnet Active</span>
-                    </div>
-                  </GlassCard>
-                  <GlassCard className="p-6">
-                    <h3 className="text-white/60 text-sm mb-4">Builder Attribution</h3>
-                    <div className="text-blue-400 font-bold">ERC-8021 Enabled</div>
-                  </GlassCard>
-                  <GlassCard className="p-6">
-                    <h3 className="text-white/60 text-sm mb-4">Gas Strategy</h3>
-                    <div className="text-white font-bold">Standard (Low Cost)</div>
-                  </GlassCard>
+                <div className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Total Users</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.users.toLocaleString()}</div>
+                      <div className="text-[10px] text-blue-400 mt-1 flex items-center gap-1">
+                        <Globe className="w-3 h-3" />
+                        Global Reach
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Total Actions</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.actions.toLocaleString()}</div>
+                      <div className="text-[10px] text-purple-400 mt-1 flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        Onchain Activity
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Games Played</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.games.toLocaleString()}</div>
+                      <div className="text-[10px] text-yellow-400 mt-1 flex items-center gap-1">
+                        <Trophy className="w-3 h-3" />
+                        Arcade Usage
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Messages</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.messages.toLocaleString()}</div>
+                      <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        Base Wall Posts
+                      </div>
+                    </GlassCard>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <GlassCard className="lg:col-span-2 p-6">
+                      <h3 className="text-white font-bold mb-6 flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-blue-400" />
+                        Network Status
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                          <div className="text-[10px] text-white/40 uppercase mb-1">Status</div>
+                          <div className="flex items-center gap-2 text-green-400 font-bold">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                            Live
+                          </div>
+                        </div>
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                          <div className="text-[10px] text-white/40 uppercase mb-1">Chain</div>
+                          <div className="text-white font-bold">Base Mainnet</div>
+                        </div>
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                          <div className="text-[10px] text-white/40 uppercase mb-1">Attribution</div>
+                          <div className="text-blue-400 font-bold">ERC-8021</div>
+                        </div>
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6 bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-blue-500/30">
+                      <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-yellow-400" />
+                        Nexus Tip
+                      </h3>
+                      <p className="text-sm text-white/60 leading-relaxed">
+                        Every action you take on BaseNexus—from playing games to posting on the wall—is logged onchain. 
+                        Build your onchain reputation and track your progress in the Profile section!
+                      </p>
+                      <Button 
+                        variant="ghost" 
+                        className="mt-4 text-xs text-blue-400 p-0 hover:bg-transparent"
+                        onClick={() => setActiveTab('profile')}
+                      >
+                        View My Stats →
+                      </Button>
+                    </GlassCard>
+                  </div>
                 </div>
               )}
 
@@ -260,8 +357,8 @@ function MainApp() {
                   )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <GlassCard className="p-6">
-                      <h3 className="text-xl font-bold mb-4">Fruit Slicer</h3>
-                      <SlicingGame onComplete={(s) => handleGameComplete('FruitSlicer', s)} />
+                      <h3 className="text-xl font-bold mb-4">Fruit Ninja</h3>
+                      <SlicingGame onComplete={(s) => handleGameComplete('FruitNinja', s)} />
                     </GlassCard>
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-bold mb-4">Base Runner</h3>

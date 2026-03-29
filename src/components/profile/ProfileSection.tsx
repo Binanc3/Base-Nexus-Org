@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare, Globe } from 'lucide-react';
+import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare, Globe, Calendar } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { motion } from 'motion/react';
-import { db } from '../../firebase';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { supabase } from '../../supabase';
 import { cn } from '@/src/lib/utils';
 
 interface UserStats {
@@ -12,7 +11,8 @@ interface UserStats {
   totalVolume: string;
   contractsDeployed: number;
   totalMessages: number;
-  highScores: { gameId: string; score: number }[];
+  totalCheckins: number;
+  highScores: { game_id: string; score: number }[];
 }
 
 export function ProfileSection() {
@@ -22,6 +22,7 @@ export function ProfileSection() {
     totalVolume: '0',
     contractsDeployed: 0,
     totalMessages: 0,
+    totalCheckins: 0,
     highScores: []
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -36,40 +37,46 @@ export function ProfileSection() {
         const savedSwapStats = localStorage.getItem(`swap_stats_${address}`);
         const swapData = savedSwapStats ? JSON.parse(savedSwapStats) : { swapCount: 0, totalVolume: '0' };
 
-        // 2. Get Deployment History from LocalStorage
-        const savedDeployHistory = localStorage.getItem(`deploy_history_${address}`);
-        const deployData = savedDeployHistory ? JSON.parse(savedDeployHistory) : [];
+        // 2. Fetch Deployment Count from Supabase
+        const { count: deployCount } = await supabase
+          .from('deployments')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_address', address);
 
-        // 3. Fetch High Scores from Firestore
-        const games = ['FruitSlicer', 'BaseRunner', 'BaseInvaders'];
-        const highScores: { gameId: string; score: number }[] = [];
+        // 3. Fetch High Scores from Supabase
+        const { data: scoresData } = await supabase
+          .from('leaderboards')
+          .select('game_id, score')
+          .eq('user_address', address)
+          .order('score', { ascending: false });
 
-        for (const gameId of games) {
-          const q = query(
-            collection(db, 'leaderboards'),
-            where('gameId', '==', gameId),
-            where('userAddress', '==', address),
-            orderBy('score', 'desc'),
-            limit(1)
-          );
-          const snapshot = await getDocs(q);
-          if (!snapshot.empty) {
-            highScores.push({ gameId, score: snapshot.docs[0].data().score });
+        // Get highest score per game
+        const highScoresMap: Record<string, number> = {};
+        scoresData?.forEach(s => {
+          if (!highScoresMap[s.game_id] || s.score > highScoresMap[s.game_id]) {
+            highScoresMap[s.game_id] = s.score;
           }
-        }
+        });
+        const highScores = Object.entries(highScoresMap).map(([game_id, score]) => ({ game_id, score }));
 
-        // 4. Fetch Message Count from Firestore
-        const messageQuery = query(
-          collection(db, 'messages'),
-          where('userAddress', '==', address)
-        );
-        const messageSnapshot = await getDocs(messageQuery);
+        // 4. Fetch Message Count from Supabase
+        const { count: messageCount } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_address', address);
+
+        // 5. Fetch Checkin Count from Supabase
+        const { count: checkinCount } = await supabase
+          .from('checkins')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_address', address);
 
         setStats({
           totalSwaps: swapData.swapCount,
           totalVolume: swapData.totalVolume,
-          contractsDeployed: deployData.length,
-          totalMessages: messageSnapshot.size,
+          contractsDeployed: deployCount || 0,
+          totalMessages: messageCount || 0,
+          totalCheckins: checkinCount || 0,
           highScores
         });
       } catch (error) {
@@ -217,7 +224,7 @@ export function ProfileSection() {
               ) : (
                 stats.highScores.map((hs, i) => (
                   <div key={i} className="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
-                    <span className="text-xs text-white/60">{hs.gameId}</span>
+                    <span className="text-xs text-white/60">{hs.game_id}</span>
                     <span className="text-sm font-bold text-yellow-400">{hs.score}</span>
                   </div>
                 ))
@@ -246,8 +253,8 @@ export function ProfileSection() {
                 <span className="text-lg font-bold text-white">{stats.totalMessages}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Status</span>
-                <span className="text-lg font-bold text-green-400">{stats.totalMessages > 0 ? 'Active' : 'Silent'}</span>
+                <span className="text-sm text-white/40">Check-ins</span>
+                <span className="text-lg font-bold text-green-400">{stats.totalCheckins}</span>
               </div>
               <div className="pt-4 border-t border-white/5">
                 <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">

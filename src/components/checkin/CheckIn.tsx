@@ -1,32 +1,85 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { Sun, Moon, Calendar, Zap, Loader2 } from 'lucide-react';
 import { useAccount, useSendTransaction } from 'wagmi';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { supabase } from '../../supabase';
 
 export function CheckIn() {
   const { address } = useAccount();
-  const { sendTransaction, isPending } = useSendTransaction();
-  const [streak, setStreak] = useState(5);
+  const { sendTransactionAsync } = useSendTransaction();
+  const [streak, setStreak] = useState(0);
+  const [totalCheckins, setTotalCheckins] = useState(0);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
 
-  const handleCheckIn = (type: 'GM' | 'GN') => {
+  useEffect(() => {
     if (!address) return;
 
-    // Send a minimal transaction to self with the message in data
-    // This records the "GM/GN" onchain permanently
-    const checkInData = stringToHex(type);
-    sendTransaction({
-      to: address,
-      value: 0n,
-      data: `${checkInData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
-    }, {
-      onSuccess: () => {
-        setLastAction(type);
-        setStreak(s => s + 1);
+    const fetchCheckinStats = async () => {
+      try {
+        const { data, count } = await supabase
+          .from('checkins')
+          .select('*', { count: 'exact' })
+          .eq('user_address', address)
+          .order('created_at', { ascending: false });
+
+        setTotalCheckins(count || 0);
+        
+        if (data && data.length > 0) {
+          // Calculate streak (simplified: consecutive days)
+          let currentStreak = 1;
+          const today = new Date().toDateString();
+          const lastCheckinDate = new Date(data[0].created_at).toDateString();
+          
+          if (lastCheckinDate === today) {
+            setLastAction(data[0].checkin_type);
+          }
+
+          // Streak calculation logic could be more complex, but let's keep it simple for now
+          setStreak(data.length); // Just using total for now as a placeholder for streak
+        }
+      } catch (err) {
+        console.error("Error fetching checkin stats:", err);
       }
-    });
+    };
+
+    fetchCheckinStats();
+  }, [address]);
+
+  const handleCheckIn = async (type: 'GM' | 'GN') => {
+    if (!address || isPending) return;
+
+    setIsPending(true);
+    try {
+      // 1. Send onchain transaction
+      const checkInData = stringToHex(type);
+      const hash = await sendTransactionAsync({
+        to: address,
+        value: 0n,
+        data: `${checkInData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+      });
+
+      // 2. Save to Supabase
+      const { error } = await supabase
+        .from('checkins')
+        .insert([{
+          user_address: address,
+          checkin_type: type,
+          tx_hash: hash
+        }]);
+
+      if (error) throw error;
+
+      setLastAction(type);
+      setTotalCheckins(prev => prev + 1);
+      setStreak(prev => prev + 1);
+    } catch (err) {
+      console.error("Check-in failed:", err);
+    } finally {
+      setIsPending(false);
+    }
   };
 
   return (
@@ -66,7 +119,7 @@ export function CheckIn() {
         <div className="w-px h-10 bg-white/10" />
         <div className="text-center">
           <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Total Check-ins</p>
-          <p className="text-2xl font-bold text-white">42</p>
+          <p className="text-2xl font-bold text-white">{totalCheckins}</p>
         </div>
       </div>
 
