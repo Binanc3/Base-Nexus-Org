@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Bot, Send, Database, Sparkles } from 'lucide-react';
+import { Bot, Send, Database, Sparkles, Loader2 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { cn } from '@/src/lib/utils';
+import { useAccount, useSendTransaction } from 'wagmi';
+import { stringToHex } from 'viem';
+import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export function OnchainAI() {
+  const { address } = useAccount();
+  const { sendTransaction, isPending: isLoggingOnchain } = useSendTransaction();
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +39,20 @@ export function OnchainAI() {
     }
   };
 
+  const logSessionOnchain = () => {
+    if (!address || messages.length === 0) return;
+
+    // Create a summary of the session
+    const summary = `AI_SESSION:${messages.length}_MSGS:${messages[messages.length-1].content.substring(0, 20)}...`;
+    const summaryHex = stringToHex(summary);
+
+    sendTransaction({
+      to: address,
+      value: 0n,
+      data: `${summaryHex}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+    });
+  };
+
   return (
     <GlassCard className="flex flex-col h-[600px] max-w-2xl mx-auto">
       <div className="p-4 border-bottom border-white/10 flex items-center justify-between">
@@ -46,8 +65,13 @@ export function OnchainAI() {
             <p className="text-xs text-white/40">Onchain logging enabled</p>
           </div>
         </div>
-        <Button variant="outline" className="text-xs flex items-center gap-2">
-          <Database className="w-4 h-4" />
+        <Button 
+          variant="outline" 
+          className="text-xs flex items-center gap-2"
+          onClick={logSessionOnchain}
+          disabled={isLoggingOnchain || messages.length === 0}
+        >
+          {isLoggingOnchain ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
           Log Session Onchain
         </Button>
       </div>

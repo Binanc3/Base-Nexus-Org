@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: leaderboards
+    // Document ID: auto-generated
+    // Fields:
+    //   - gameId: string (required) - The ID of the game
+    //   - score: number (required) - The score achieved
+    //   - userId: string (required) - The UID of the user
+    //   - userAddress: string (required) - The wallet address
+    //   - timestamp: timestamp (required) - When the score was achieved
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidLeaderboardEntry(data) {
+      return data.keys().hasAll(['gameId', 'score', 'userId', 'userAddress', 'timestamp']) &&
+             data.gameId is string && data.gameId.size() > 0 &&
+             data.score is number && data.score >= 0 &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.userAddress is string && data.userAddress.size() == 42 &&
+             data.timestamp is timestamp;
+    }
+
+    match /leaderboards/{entryId} {
+      // Anyone can read leaderboards to see top scores
+      allow read: if true;
+      
+      // Only authenticated users can create their own entries
+      allow create: if isAuthenticated() && isValidLeaderboardEntry(request.resource.data);
+      
+      // Entries are immutable once created
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+  }
+}

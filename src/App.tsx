@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
-import { SlicingGame, EndlessRunner, TileMatch } from './components/games/GameHub';
+import { SlicingGame, EndlessRunner, BaseInvaders } from './components/games/GameHub';
 import { SwapSection } from './components/swap/SwapSection';
 import { OnchainAI } from './components/ai/OnchainAI';
 import { ContractDeployer } from './components/deployer/ContractDeployer';
 import { CheckIn } from './components/checkin/CheckIn';
+import { ProfileSection } from './components/profile/ProfileSection';
 import { cn } from '@/src/lib/utils';
+import { stringToHex } from 'viem';
+import { BASE_BUILDER_CODE } from './lib/wagmi';
 import { 
   LayoutDashboard, 
   Gamepad2, 
@@ -18,15 +21,49 @@ import {
   Wallet,
   LogOut,
   ExternalLink,
-  Shield
+  Shield,
+  Trophy,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+import { db } from './firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 function MainApp() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
+  const { sendTransaction } = useSendTransaction();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
+
+  const handleGameComplete = async (game: string, score: number) => {
+    if (!address) return;
+    
+    setLastScore({ game, score });
+    
+    // 1. Save to Firestore for Leaderboard
+    try {
+      await addDoc(collection(db, 'leaderboards'), {
+        gameId: game,
+        userAddress: address,
+        score: score,
+        timestamp: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error saving to leaderboard:", error);
+    }
+
+    // 2. Log score onchain with Base Builder Code attribution
+    // We send a 0 ETH transaction to self with the score in the data field
+    const scoreData = stringToHex(`SCORE:${game}:${score}`);
+    sendTransaction({
+      to: address,
+      value: 0n,
+      data: `${scoreData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+    });
+  };
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -35,6 +72,7 @@ function MainApp() {
     { id: 'ai', label: 'Base AI', icon: MessageSquare },
     { id: 'deployer', label: 'Deployer', icon: Code2 },
     { id: 'checkin', label: 'GM/GN', icon: CheckCircle2 },
+    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   if (!isConnected) {
@@ -180,19 +218,35 @@ function MainApp() {
 
               {activeTab === 'games' && (
                 <div className="space-y-8">
+                  {lastScore && (
+                    <motion.div 
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="bg-blue-500/20 border border-blue-500/40 p-4 rounded-2xl flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Trophy className="w-6 h-6 text-yellow-400" />
+                        <div>
+                          <p className="text-sm text-blue-200">Last Score Logged Onchain</p>
+                          <p className="font-bold">{lastScore.game}: {lastScore.score}</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" className="text-xs" onClick={() => setLastScore(null)}>Dismiss</Button>
+                    </motion.div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-bold mb-4">Fruit Slicer</h3>
-                      <SlicingGame onComplete={(s) => console.log('Score:', s)} />
+                      <SlicingGame onComplete={(s) => handleGameComplete('FruitSlicer', s)} />
                     </GlassCard>
                     <GlassCard className="p-6">
                       <h3 className="text-xl font-bold mb-4">Base Runner</h3>
-                      <EndlessRunner onComplete={(s) => console.log('Score:', s)} />
+                      <EndlessRunner onComplete={(s) => handleGameComplete('BaseRunner', s)} />
                     </GlassCard>
                   </div>
                   <GlassCard className="p-6 max-w-2xl mx-auto">
-                    <h3 className="text-xl font-bold mb-4">Tile Match</h3>
-                    <TileMatch onComplete={(s) => console.log('Score:', s)} />
+                    <h3 className="text-xl font-bold mb-4">Base Invaders</h3>
+                    <BaseInvaders onComplete={(s) => handleGameComplete('BaseInvaders', s)} />
                   </GlassCard>
                 </div>
               )}
@@ -201,6 +255,7 @@ function MainApp() {
               {activeTab === 'ai' && <OnchainAI />}
               {activeTab === 'deployer' && <ContractDeployer />}
               {activeTab === 'checkin' && <CheckIn />}
+              {activeTab === 'profile' && <ProfileSection />}
             </motion.div>
           </AnimatePresence>
         </div>

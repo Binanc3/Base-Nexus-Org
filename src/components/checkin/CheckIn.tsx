@@ -1,15 +1,32 @@
 import { useState } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Sun, Moon, Calendar, Zap } from 'lucide-react';
+import { Sun, Moon, Calendar, Zap, Loader2 } from 'lucide-react';
+import { useAccount, useSendTransaction } from 'wagmi';
+import { stringToHex } from 'viem';
+import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 
 export function CheckIn() {
+  const { address } = useAccount();
+  const { sendTransaction, isPending } = useSendTransaction();
   const [streak, setStreak] = useState(5);
   const [lastAction, setLastAction] = useState<string | null>(null);
 
   const handleCheckIn = (type: 'GM' | 'GN') => {
-    setLastAction(type);
-    setStreak(s => s + 1);
-    // Onchain logic would go here
+    if (!address) return;
+
+    // Send a minimal transaction to self with the message in data
+    // This records the "GM/GN" onchain permanently
+    const checkInData = stringToHex(type);
+    sendTransaction({
+      to: address,
+      value: 0n,
+      data: `${checkInData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+    }, {
+      onSuccess: () => {
+        setLastAction(type);
+        setStreak(s => s + 1);
+      }
+    });
   };
 
   return (
@@ -25,16 +42,18 @@ export function CheckIn() {
           variant={lastAction === 'GM' ? 'primary' : 'outline'}
           className="py-8 flex flex-col items-center gap-3"
           onClick={() => handleCheckIn('GM')}
+          disabled={isPending}
         >
-          <Sun className="w-8 h-8" />
+          {isPending && lastAction === 'GM' ? <Loader2 className="w-8 h-8 animate-spin" /> : <Sun className="w-8 h-8" />}
           <span className="text-lg">GM</span>
         </Button>
         <Button 
           variant={lastAction === 'GN' ? 'primary' : 'outline'}
           className="py-8 flex flex-col items-center gap-3"
           onClick={() => handleCheckIn('GN')}
+          disabled={isPending}
         >
-          <Moon className="w-8 h-8" />
+          {isPending && lastAction === 'GN' ? <Loader2 className="w-8 h-8 animate-spin" /> : <Moon className="w-8 h-8" />}
           <span className="text-lg">GN</span>
         </Button>
       </div>
@@ -53,7 +72,7 @@ export function CheckIn() {
 
       <p className="text-xs text-white/40 mt-6 flex items-center justify-center gap-2">
         <Calendar className="w-4 h-4" />
-        Last check-in: Today, 8:45 AM
+        {lastAction ? `Last check-in: Just now (${lastAction})` : 'Last check-in: Today, 8:45 AM'}
       </p>
     </GlassCard>
   );

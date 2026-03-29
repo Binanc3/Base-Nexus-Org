@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "A single entry in the leaderboard for a specific game.",
+      "type": "object",
+      "properties": {
+        "gameId": {
+          "type": "string",
+          "description": "The ID of the game (e.g., 'FruitSlicer', 'BaseRunner', 'TileMatch')."
+        },
+        "score": {
+          "type": "number",
+          "description": "The score achieved by the user."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who achieved the score."
+        },
+        "userAddress": {
+          "type": "string",
+          "description": "The wallet address of the user."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the score was achieved."
+        }
+      },
+      "required": ["gameId", "score", "userId", "userAddress", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/leaderboards/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Collection of leaderboard entries."
+    }
+  }
+}
