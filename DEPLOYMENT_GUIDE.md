@@ -4,23 +4,34 @@ Welcome to the **BaseNexus** ecosystem! This guide contains everything you need 
 
 ---
 
+## ✅ Pre-Deployment Checklist
+
+Before you deploy to production, ensure you have completed these steps:
+
+1.  [ ] **Google AI Studio Key**: Get your key from [aistudio.google.com](https://aistudio.google.com/app/apikey).
+2.  [ ] **Base Builder Code**: Get your unique code from [base.org/builders](https://base.org/builders).
+3.  [ ] **Personal RPC (Optional but Recommended)**: Get a Base Mainnet RPC from [Alchemy](https://www.alchemy.com/) or [QuickNode](https://www.quicknode.com/).
+4.  [ ] **Firebase Project**: Set up a project at [console.firebase.google.com](https://console.firebase.google.com/).
+    *   *Note: If you encounter a "billing required" error, you must link a billing account to your Google Cloud project.*
+5.  [ ] **Contract Bytecode**: Compile your ERC-20/ERC-721 contracts in [Remix IDE](https://remix.ethereum.org/) and update the code.
+
+---
+
 ## 1. 🛠️ Configuration & Environment Variables
 
-You can configure the app in two ways:
-1.  **Via Environment Variables (Recommended)**: Add these to **AI Studio Settings > Secrets** or your hosting provider's dashboard.
-2.  **Directly in Code**: Modify the specific files mentioned below.
+You can configure the app by adding these to **AI Studio Settings > Secrets** (for the preview) or your hosting provider's dashboard (for production).
 
 ### 🔑 Required API Keys & Secrets
-| Variable | Description | Where to get it | Where to input in code |
-| :--- | :--- | :--- | :--- |
-| `GEMINI_API_KEY` | Powers the "Base AI" features | [Google AI Studio](https://aistudio.google.com/app/apikey) | **AI Studio Settings > Secrets** |
-| `VITE_BASE_RPC_URL` | **(Recommended)** Your personal RPC for better performance | [Alchemy](https://www.alchemy.com/), [QuickNode](https://www.quicknode.com/), or [Infura](https://www.infura.io/) | `src/lib/wagmi.ts` |
-| `VITE_BASE_BUILDER_CODE` | Your unique onchain developer ID | [Base Builders Portal](https://base.org/builders) | `src/lib/wagmi.ts` |
+| Variable | Description | Where to get it |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | Powers the "Base AI" features | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `VITE_BASE_RPC_URL` | **(Recommended)** Your personal RPC for better performance | [Alchemy](https://www.alchemy.com/) or [QuickNode](https://www.quicknode.com/) |
+| `VITE_BASE_BUILDER_CODE` | Your unique onchain developer ID | [Base Builders Portal](https://base.org/builders) |
 
-### 🌐 RPC Configuration
-By default, the app uses a public RPC. For faster transactions and higher rate limits, we recommend using a personal RPC from Alchemy or QuickNode.
-- **Variable Name**: `VITE_BASE_RPC_URL`
-- **Example Value**: `https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY`
+### 🌐 How to input in code
+If you prefer not to use environment variables, you can modify these files directly:
+- **Builder Code & RPC**: `src/lib/wagmi.ts`
+- **AI Key**: `src/components/ai/OnchainAI.tsx`
 
 ---
 
@@ -32,9 +43,7 @@ BaseNexus uses Firebase for the **Base Wall**, **Leaderboards**, and **AI Sessio
 2.  **Firestore Database**:
     *   In the Firebase sidebar, go to **Build > Firestore Database**.
     *   Click **Create database** and select **Native Mode**.
-    *   The app uses these collections:
-        *   `messages`: Stores the real-time social feed for the **Base Wall**.
-        *   `leaderboards`: Stores high scores from the **Game Hub**.
+    *   **Collections**: The app automatically creates `messages` and `leaderboards` when data is first saved.
 3.  **Security Rules**:
     *   Go to the **Rules** tab in Firestore.
     *   Copy and paste the contents of `firestore.rules` from this project.
@@ -49,8 +58,9 @@ BaseNexus uses Firebase for the **Base Wall**, **Leaderboards**, and **AI Sessio
 ## 3. 🏗️ Contract Factory (Bytecode)
 
 To make the **Contract Deployer** functional for production:
-1.  **Bytecode**: Replace the placeholder bytecodes in `src/components/deployer/ContractDeployer.tsx` with actual compiled bytecode from OpenZeppelin (ERC-20/ERC-721).
-2.  **Where to compile?**: Use [Remix IDE](https://remix.ethereum.org/) to compile your Solidity contracts and copy the `bytecode` from the "Compilation Details".
+1.  **Compile**: Open your Solidity contract in [Remix IDE](https://remix.ethereum.org/).
+2.  **Copy Bytecode**: In the "Solidity Compiler" tab, click "Compilation Details" and copy the `bytecode` object.
+3.  **Update Code**: Replace the placeholder bytecodes in `src/components/deployer/ContractDeployer.tsx` with your actual compiled bytecode.
 
 ---
 
