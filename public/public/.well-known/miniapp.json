@@ -1,1 +1,12 @@
-
+{
+  "name": "BaseNexus",
+  "description": "The ultimate social and gaming hub on Base.",
+  "icon": "https://base-nexus.vercel.app/icon.png",
+  "url": "https://base-nexus.vercel.app",
+  "frame": {
+    "version": "1",
+    "name": "BaseNexus",
+    "iconUrl": "https://base-nexus.vercel.app/icon.png",
+    "homeUrl": "https://base-nexus.vercel.app"
+  }
+}
