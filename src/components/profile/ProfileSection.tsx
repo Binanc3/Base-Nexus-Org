@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star } from 'lucide-react';
+import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { motion } from 'motion/react';
 import { db } from '../../firebase';
@@ -11,6 +11,7 @@ interface UserStats {
   totalSwaps: number;
   totalVolume: string;
   contractsDeployed: number;
+  totalMessages: number;
   highScores: { gameId: string; score: number }[];
 }
 
@@ -20,6 +21,7 @@ export function ProfileSection() {
     totalSwaps: 0,
     totalVolume: '0',
     contractsDeployed: 0,
+    totalMessages: 0,
     highScores: []
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -56,10 +58,18 @@ export function ProfileSection() {
           }
         }
 
+        // 4. Fetch Message Count from Firestore
+        const messageQuery = query(
+          collection(db, 'messages'),
+          where('userAddress', '==', address)
+        );
+        const messageSnapshot = await getDocs(messageQuery);
+
         setStats({
           totalSwaps: swapData.swapCount,
           totalVolume: swapData.totalVolume,
           contractsDeployed: deployData.length,
+          totalMessages: messageSnapshot.size,
           highScores
         });
       } catch (error) {
@@ -124,7 +134,7 @@ export function ProfileSection() {
             </div>
             <div className="flex gap-4">
               <div className="text-center px-6 py-3 bg-white/5 rounded-2xl border border-white/10">
-                <div className="text-2xl font-bold text-white">{stats.totalSwaps + stats.contractsDeployed}</div>
+                <div className="text-2xl font-bold text-white">{stats.totalSwaps + stats.contractsDeployed + stats.totalMessages}</div>
                 <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Total Actions</div>
               </div>
             </div>
@@ -216,6 +226,33 @@ export function ProfileSection() {
                 <div className="flex items-center gap-2 text-[10px] text-yellow-400 font-bold uppercase tracking-wider">
                   <Star className="w-3 h-3" />
                   Arcade Master
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        </motion.div>
+
+        <motion.div variants={item}>
+          <GlassCard className="p-6 h-full bg-green-600/5 border-green-500/20">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-green-500/20 rounded-lg">
+                <MessageSquare className="w-5 h-5 text-green-400" />
+              </div>
+              <h3 className="font-bold text-white">Social Presence</h3>
+            </div>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-white/40">Wall Posts</span>
+                <span className="text-lg font-bold text-white">{stats.totalMessages}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-white/40">Status</span>
+                <span className="text-lg font-bold text-green-400">{stats.totalMessages > 0 ? 'Active' : 'Silent'}</span>
+              </div>
+              <div className="pt-4 border-t border-white/5">
+                <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">
+                  <Globe className="w-3 h-3" />
+                  Onchain Voice
                 </div>
               </div>
             </div>

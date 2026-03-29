@@ -28,12 +28,45 @@
         }
       },
       "required": ["gameId", "score", "userId", "userAddress", "timestamp"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message posted to the Base Wall.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who posted the message."
+        },
+        "userAddress": {
+          "type": "string",
+          "description": "The wallet address of the user."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content of the message."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the message was posted."
+        },
+        "txHash": {
+          "type": "string",
+          "description": "The transaction hash of the onchain log."
+        }
+      },
+      "required": ["userId", "userAddress", "content", "timestamp"]
     }
   },
   "firestore": {
     "/leaderboards/{entryId}": {
       "schema": "LeaderboardEntry",
       "description": "Collection of leaderboard entries."
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Collection of messages posted to the Base Wall."
     }
   }
 }

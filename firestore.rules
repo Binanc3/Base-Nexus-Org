@@ -36,6 +36,16 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
+    function isValidMessage(data) {
+      return data.keys().hasAll(['userId', 'userAddress', 'content', 'timestamp']) &&
+             data.keys().hasOnly(['userId', 'userAddress', 'content', 'timestamp', 'txHash']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.userAddress is string && data.userAddress.size() == 42 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 280 &&
+             data.timestamp is timestamp &&
+             (!('txHash' in data) || (data.txHash is string && data.txHash.size() == 66));
+    }
+
     match /leaderboards/{entryId} {
       // Anyone can read leaderboards to see top scores
       allow read: if true;
@@ -44,6 +54,17 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidLeaderboardEntry(request.resource.data);
       
       // Entries are immutable once created
+      allow update, delete: if false;
+    }
+
+    match /messages/{messageId} {
+      // Anyone can read the wall
+      allow read: if true;
+      
+      // Only authenticated users can post messages
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+      
+      // Messages are immutable once created
       allow update, delete: if false;
     }
 

@@ -23,8 +23,11 @@ import {
   ExternalLink,
   Shield,
   Trophy,
-  User
+  User,
+  Sparkles,
+  Globe
 } from 'lucide-react';
+import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { db } from './firebase';
@@ -69,9 +72,10 @@ function MainApp() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'games', label: 'Game Hub', icon: Gamepad2 },
     { id: 'swap', label: 'Swap', icon: Repeat },
-    { id: 'ai', label: 'Base AI', icon: MessageSquare },
+    { id: 'ai', label: 'Base AI', icon: Sparkles },
     { id: 'deployer', label: 'Deployer', icon: Code2 },
     { id: 'checkin', label: 'GM/GN', icon: CheckCircle2 },
+    { id: 'wall', label: 'Base Wall', icon: MessageSquare },
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
@@ -256,6 +260,7 @@ function MainApp() {
               {activeTab === 'deployer' && <ContractDeployer />}
               {activeTab === 'checkin' && <CheckIn />}
               {activeTab === 'profile' && <ProfileSection />}
+              {activeTab === 'wall' && <BaseWall />}
             </motion.div>
           </AnimatePresence>
         </div>
