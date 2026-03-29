@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2 } from 'lucide-react';
-import { useWalletClient, usePublicClient, useAccount } from 'wagmi';
+import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { base } from 'wagmi/chains';
 
@@ -32,7 +32,7 @@ export function ContractDeployer() {
   const [estimatedGas, setEstimatedGas] = useState<string | null>(null);
   const [isEstimating, setIsEstimating] = useState(false);
   const [history, setHistory] = useState<DeployedContract[]>([]);
-  const { data: walletClient } = useWalletClient();
+  const { data: walletClient } = useConnectorClient();
   const publicClient = usePublicClient();
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export function ContractDeployer() {
 
   useEffect(() => {
     const estimateGas = async () => {
-      if (!publicClient || !formData.name || !formData.symbol || !walletClient?.account) {
+      if (!publicClient || !formData.name || !formData.symbol || !(walletClient as any)?.account) {
         setEstimatedGas(null);
         return;
       }
@@ -72,9 +72,12 @@ export function ContractDeployer() {
 
       setIsEstimating(true);
       try {
+        const client = walletClient as any;
+        if (!client?.account) return;
+        
         // Use actual bytecode for accurate estimation
         const gas = await publicClient.estimateGas({
-          account: walletClient.account.address,
+          account: client.account.address,
           data: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`,
         });
         
@@ -100,11 +103,14 @@ export function ContractDeployer() {
     setIsDeploying(true);
     setDeployStep('Requesting signature...');
     try {
+      const client = walletClient as any;
+      if (!client?.account) return;
+
       const args = contractType === 'ERC20' 
         ? [formData.name, formData.symbol, parseEther(formData.supply)]
         : [formData.name, formData.symbol, formData.baseUri];
 
-      const hash = await (walletClient as any).deployContract({
+      const hash = await client.deployContract({
         abi: [
           {
             inputs: [
@@ -118,7 +124,7 @@ export function ContractDeployer() {
         ], 
         bytecode: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`, 
         args,
-        account: walletClient.account,
+        account: client.account.address,
         chain: base,
       });
 

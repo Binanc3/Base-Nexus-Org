@@ -14,8 +14,8 @@ You can configure the app in two ways:
 | Variable | Description | Where to get it | Where to input in code |
 | :--- | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | Powers the "Base AI" features | [Google AI Studio](https://aistudio.google.com/app/apikey) | **AI Studio Settings > Secrets** |
-| `VITE_BASE_RPC_URL` | **(Recommended)** Your personal RPC for better performance | [Alchemy](https://www.alchemy.com/), [QuickNode](https://www.quicknode.com/), or [Infura](https://www.infura.io/) | `src/lib/wagmi.ts` (line 27) |
-| `VITE_BASE_BUILDER_CODE` | Your unique onchain developer ID | [Base Builders Portal](https://base.org/builders) | `src/lib/wagmi.ts` (line 6) |
+| `VITE_BASE_RPC_URL` | **(Recommended)** Your personal RPC for better performance | [Alchemy](https://www.alchemy.com/), [QuickNode](https://www.quicknode.com/), or [Infura](https://www.infura.io/) | `src/lib/wagmi.ts` |
+| `VITE_BASE_BUILDER_CODE` | Your unique onchain developer ID | [Base Builders Portal](https://base.org/builders) | `src/lib/wagmi.ts` |
 
 ### 🌐 RPC Configuration
 By default, the app uses a public RPC. For faster transactions and higher rate limits, we recommend using a personal RPC from Alchemy or QuickNode.
@@ -49,7 +49,7 @@ BaseNexus uses Firebase for the **Base Wall**, **Leaderboards**, and **AI Sessio
 ## 3. 🏗️ Contract Factory (Bytecode)
 
 To make the **Contract Deployer** functional for production:
-1.  **Bytecode**: Replace the placeholder bytecodes in `src/components/deployer/ContractDeployer.tsx` (lines 40-45) with actual compiled bytecode from OpenZeppelin (ERC-20/ERC-721).
+1.  **Bytecode**: Replace the placeholder bytecodes in `src/components/deployer/ContractDeployer.tsx` with actual compiled bytecode from OpenZeppelin (ERC-20/ERC-721).
 2.  **Where to compile?**: Use [Remix IDE](https://remix.ethereum.org/) to compile your Solidity contracts and copy the `bytecode` from the "Compilation Details".
 
 ---
