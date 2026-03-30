@@ -1,6 +1,7 @@
 import { http, createConfig } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { coinbaseWallet, injected } from 'wagmi/connectors';
+import farcasterConnector from '@farcaster/miniapp-wagmi-connector';
 
 // Base Builder Code (ERC-8021)
 // Get yours at: https://base.org/builders
@@ -9,6 +10,7 @@ export const BASE_BUILDER_CODE = (import.meta.env.VITE_BASE_BUILDER_CODE || '0x0
 export const config = createConfig({
   chains: [base],
   connectors: [
+    farcasterConnector(),
     coinbaseWallet({ 
       appName: 'BaseNexus',
       preference: 'smartWalletOnly', // Standard for Base Mini Apps

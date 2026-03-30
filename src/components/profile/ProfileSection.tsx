@@ -5,6 +5,7 @@ import { useAccount } from 'wagmi';
 import { motion } from 'motion/react';
 import { supabase } from '../../supabase';
 import { cn } from '@/src/lib/utils';
+import sdk from '@farcaster/miniapp-sdk';
 
 interface UserStats {
   totalSwaps: number;
@@ -17,6 +18,7 @@ interface UserStats {
 
 export function ProfileSection() {
   const { address } = useAccount();
+  const [context, setContext] = useState<any>();
   const [stats, setStats] = useState<UserStats>({
     totalSwaps: 0,
     totalVolume: '0',
@@ -26,6 +28,18 @@ export function ProfileSection() {
     highScores: []
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const getContext = async () => {
+      try {
+        const ctx = await sdk.context;
+        setContext(ctx);
+      } catch (e) {
+        console.error("Error getting Farcaster context:", e);
+      }
+    };
+    getContext();
+  }, []);
 
   useEffect(() => {
     if (!address) return;
@@ -117,12 +131,23 @@ export function ProfileSection() {
         <GlassCard className="p-8 overflow-hidden relative">
           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/10 blur-[100px] rounded-full -mr-32 -mt-32" />
           <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-blue-500/20">
-              <User className="w-12 h-12 text-white" />
+            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-blue-500/20 overflow-hidden">
+              {context?.user?.pfpUrl ? (
+                <img src={context.user.pfpUrl} alt="PFP" className="w-full h-full object-cover" />
+              ) : (
+                <User className="w-12 h-12 text-white" />
+              )}
             </div>
             <div className="flex-1 text-center md:text-left">
-              <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">Onchain Identity</h2>
+              <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">
+                {context?.user?.displayName || context?.user?.username || 'Onchain Identity'}
+              </h2>
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
+                {context?.user?.username && (
+                  <div className="px-3 py-1 bg-purple-500/20 border border-purple-500/30 rounded-lg text-xs font-bold text-purple-400 flex items-center gap-2">
+                    @{context.user.username}
+                  </div>
+                )}
                 <div className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl font-mono text-sm text-blue-400 flex items-center gap-2">
                   {address.substring(0, 8)}...{address.substring(34)}
                   <button onClick={() => navigator.clipboard.writeText(address)} className="hover:text-white transition-colors">

@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@coinbase/onchainkit": "^1.1.2",
+    "@farcaster/miniapp-sdk": "^0.2.3",
+    "@farcaster/miniapp-wagmi-connector": "^1.1.1",
     "@google/genai": "^1.47.0",
     "@lifi/sdk": "^3.16.3",
     "@lifi/widget": "^3.40.12",

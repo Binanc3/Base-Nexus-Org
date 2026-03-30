@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
+import sdk, { type Context } from '@farcaster/miniapp-sdk';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
 import { SlicingGame, EndlessRunner, NeonDefender } from './components/games/GameHub';
@@ -44,8 +45,20 @@ function MainApp() {
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
+  const [context, setContext] = useState<any>();
 
   useEffect(() => {
+    const init = async () => {
+      try {
+        const ctx = await sdk.context;
+        setContext(ctx);
+        await sdk.actions.ready();
+      } catch (e) {
+        console.error("Farcaster SDK init failed:", e);
+      }
+    };
+    init();
+
     // Detect if running inside an iframe (common for Mini Apps)
     if (window.self !== window.top) {
       setIsMiniApp(true);
