@@ -4,9 +4,10 @@
     "payload": "eyJkb21haW4iOiJiYXNlLW5leHVzLnZlcmNlbC5hcHAifQ",
     "signature": "3s8bo4ciQgDQnAcBkdAIVeinmSm9UvnfkAHIrZeL8dcc4NyFxpSPWgFuXCmVjX+FRPgJPAbDkGGBDNChu9wbhRs="
   },
-  "frame": {
+  "miniapp": {
     "version": "1",
     "name": "Base Nexus",
+    "description": "Your Base mini app for DeFi and Web3 experiences",
     "iconUrl": "https://base-nexus.vercel.app/icon.png",
     "homeUrl": "https://base-nexus.vercel.app",
     "imageUrl": "https://base-nexus.vercel.app/image.png",
@@ -14,7 +15,5 @@
     "splashImageUrl": "https://base-nexus.vercel.app/splash.png",
     "splashBackgroundColor": "#eeccff",
     "webhookUrl": "https://base-nexus.vercel.app/api/webhook"
-    "primaryCategory": "finance",
-    "tags": ["defi", "base", "web3"]
   }
 }
