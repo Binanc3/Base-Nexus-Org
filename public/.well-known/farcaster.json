@@ -14,5 +14,7 @@
     "splashImageUrl": "https://base-nexus.vercel.app/splash.png",
     "splashBackgroundColor": "#eeccff",
     "webhookUrl": "https://base-nexus.vercel.app/api/webhook"
+    "primaryCategory": "finance",
+    "tags": ["defi", "base", "web3"]
   }
 }
