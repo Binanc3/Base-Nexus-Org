@@ -1,0 +1,21 @@
+{
+  "short_name": "BaseNexus",
+  "name": "BaseNexus: The Onchain Hub",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/base/192/192",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://picsum.photos/seed/base/512/512",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#000000",
+  "display": "standalone",
+  "theme_color": "#0052FF",
+  "description": "The ultimate social and gaming hub on Base."
+}
