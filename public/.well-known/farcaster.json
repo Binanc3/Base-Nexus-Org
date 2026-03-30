@@ -1,0 +1,17 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "frame": {
+    "version": "1",
+    "name": "Base Nexus",
+    "iconUrl": "https://base-nexus.vercel.app/icon.png",
+    "homeUrl": "https://base-nexus.vercel.app",
+    "splashImageUrl": "https://base-nexus.vercel.app/splash.png",
+    "splashBackgroundColor": "#000000",
+    "webhookUrl": "https://base-nexus.vercel.app/api/webhook"
+  }
+}
+
