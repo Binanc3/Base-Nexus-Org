@@ -31,6 +31,12 @@ import {
 } from 'lucide-react';
 import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
+import { sdk } from '@farcaster/miniapp-sdk';   // or from @base/minikit if using Base's version
+
+// Call this once your UI is fully rendered
+useEffect(() => {
+  sdk.actions.ready();
+}, []);
 
 import { supabase } from './supabase';
 
