@@ -5,13 +5,11 @@ import { config } from '../lib/wagmi';
 import { OnchainKitProvider } from '@coinbase/onchainkit';
 import { base } from 'viem/chains';
 
-function App() {
-  // ← THIS LOG SHOULD ALWAYS APPEAR if the app is running
-  console.log("🚀 App component has mounted!");
-
 const queryClient = new QueryClient();
 
 export function Web3Provider({ children }: { children: ReactNode }) {
+  console.log("🚀 Web3Provider mounted");   // Optional debug log
+
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
