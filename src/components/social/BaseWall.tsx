@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { MessageSquare, Send, Loader2, User, Clock, ExternalLink, ShieldCheck } from 'lucide-react';
-import { useAccount, useSendTransaction } from 'wagmi';
+import { MessageSquare, Send, Loader2, User, Clock, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '@/src/supabase';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 import { cn } from '@/src/lib/utils';
+import { toast } from 'sonner';
 
 interface Message {
   id: string;
@@ -20,6 +21,7 @@ interface Message {
 export function BaseWall() {
   const { address } = useAccount();
   const { sendTransactionAsync } = useSendTransaction();
+  const publicClient = usePublicClient();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isPosting, setIsPosting] = useState(false);
@@ -78,19 +80,25 @@ export function BaseWall() {
     setIsPosting(true);
     try {
       // 1. Onchain Logging - MANDATORY for wall posts now
-      // Send to a dedicated attribution address to ensure it works for both EOAs and Smart Wallets
-      // while still recording the presence onchain with the builder code.
+      toast.loading("Confirming in wallet...", { id: 'wall-post' });
+      
       const txHash = await sendTransactionAsync({
         to: '0x0000000000000000000000000000000000008021',
         value: 0n,
         data: BASE_BUILDER_CODE,
-        // Manual gas limit to prevent estimation failures on Smart Wallets
         gas: 50000n,
       });
 
       if (!txHash) throw new Error("Transaction failed or was rejected");
 
-      // 2. Save to Supabase ONLY if tx was successful
+      toast.loading("Waiting for confirmation...", { id: 'wall-post' });
+
+      // 2. Wait for confirmation
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+
+      // 3. Save to Supabase ONLY if tx was successful
       const { error: supabaseError } = await supabase
         .from('messages')
         .insert([
@@ -103,10 +111,21 @@ export function BaseWall() {
 
       if (supabaseError) throw supabaseError;
 
+      toast.success("Message Posted!", { 
+        id: 'wall-post',
+        description: "Your message is now on the Base Wall.",
+        icon: <CheckCircle2 className="w-4 h-4 text-green-400" />
+      });
+
       setNewMessage('');
     } catch (error) {
       console.error("Error posting message:", error);
-      setError(error instanceof Error ? error.message : "Failed to post message. Ensure transaction is confirmed.");
+      const message = error instanceof Error ? error.message : "Failed to post message. Ensure transaction is confirmed.";
+      setError(message);
+      toast.error("Post Failed", { 
+        id: 'wall-post',
+        description: message.length > 60 ? "Transaction failed or was rejected." : message
+      });
     } finally {
       setIsPosting(false);
     }

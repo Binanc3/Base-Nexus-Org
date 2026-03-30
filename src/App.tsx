@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useSendTransaction, usePublicClient } from 'wagmi';
 import sdk, { type Context } from '@farcaster/miniapp-sdk';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
+import { Toaster, toast } from 'sonner';
 
 import { supabase } from './supabase';
 
@@ -39,7 +40,8 @@ function MainApp() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
-  const { sendTransaction } = useSendTransaction();
+  const { sendTransactionAsync } = useSendTransaction();
+  const publicClient = usePublicClient();
   const mainRef = useRef<HTMLElement>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
@@ -127,17 +129,24 @@ function MainApp() {
 
     // 2. Log score onchain ONLY if connected
     if (address && isConnected) {
-      // Send to a dedicated attribution address to ensure it works for both EOAs and Smart Wallets
-      // while still recording the presence onchain with the builder code.
       try {
-        sendTransaction({
+        toast.loading("Logging score onchain...", { id: 'game-score' });
+        
+        const hash = await sendTransactionAsync({
           to: '0x0000000000000000000000000000000000008021',
           value: 0n,
           data: BASE_BUILDER_CODE,
           gas: 50000n,
         });
+
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+
+        toast.success("Score Logged Onchain!", { id: 'game-score' });
       } catch (err) {
         console.error("Onchain score logging failed:", err);
+        toast.error("Onchain Logging Failed", { id: 'game-score' });
       }
     }
   };
@@ -633,6 +642,7 @@ function MainApp() {
 export default function App() {
   return (
     <Web3Provider>
+      <Toaster position="top-center" richColors theme="dark" />
       <MainApp />
     </Web3Provider>
   );

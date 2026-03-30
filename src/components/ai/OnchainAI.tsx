@@ -3,18 +3,21 @@ import { GlassCard, Button } from '../ui/GlassUI';
 import { Bot, Send, Database, Sparkles, Loader2 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { cn } from '@/src/lib/utils';
-import { useAccount, useSendTransaction } from 'wagmi';
+import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { toast } from 'sonner';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export function OnchainAI() {
   const { address } = useAccount();
-  const { sendTransaction, isPending: isLoggingOnchain } = useSendTransaction();
+  const { sendTransactionAsync } = useSendTransaction();
+  const publicClient = usePublicClient();
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoggingOnchain, setIsLoggingOnchain] = useState(false);
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -39,19 +42,43 @@ export function OnchainAI() {
     }
   };
 
-  const logSessionOnchain = () => {
-    if (!address || messages.length === 0) return;
+  const logSessionOnchain = async () => {
+    if (!address || messages.length === 0 || isLoggingOnchain) return;
 
-    // Create a summary of the session
-    const summary = `AI_SESSION:${messages.length}_MSGS:${messages[messages.length-1].content.substring(0, 20)}...`;
-    const summaryHex = stringToHex(summary);
+    setIsLoggingOnchain(true);
+    try {
+      // Create a summary of the session
+      const summary = `AI_SESSION:${messages.length}_MSGS:${messages[messages.length-1].content.substring(0, 20)}...`;
+      const summaryHex = stringToHex(summary);
 
-    sendTransaction({
-      to: '0x0000000000000000000000000000000000008021',
-      value: 0n,
-      data: `${summaryHex}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
-      gas: 50000n,
-    });
+      toast.loading("Confirming in wallet...", { id: 'ai-log' });
+
+      const hash = await sendTransactionAsync({
+        to: '0x0000000000000000000000000000000000008021',
+        value: 0n,
+        data: `${summaryHex}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        gas: 50000n,
+      });
+
+      toast.loading("Waiting for confirmation...", { id: 'ai-log' });
+
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash });
+      }
+
+      toast.success("AI Session Logged!", { 
+        id: 'ai-log',
+        description: "Your interaction summary is now onchain."
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error("Logging Failed", { 
+        id: 'ai-log',
+        description: error instanceof Error ? error.message : "Failed to log session."
+      });
+    } finally {
+      setIsLoggingOnchain(false);
+    }
   };
 
   return (

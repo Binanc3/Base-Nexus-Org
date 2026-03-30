@@ -6,6 +6,7 @@ import { parseEther, formatEther, encodeDeployData } from 'viem';
 import { base } from 'wagmi/chains';
 import { supabase } from '../../supabase';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { toast } from 'sonner';
 
 import { cn } from '@/src/lib/utils';
 
@@ -129,6 +130,8 @@ export function ContractDeployer() {
       const cleanBytecode = bytecode.startsWith('0x') ? bytecode : `0x${bytecode}`;
       const finalBytecode = `${cleanBytecode}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`;
 
+      toast.loading("Confirming in wallet...", { id: 'deploy' });
+
       const hash = await client.deployContract({
         abi,
         bytecode: finalBytecode,
@@ -138,6 +141,8 @@ export function ContractDeployer() {
       });
 
       setDeployStep('Waiting for confirmation...');
+      toast.loading("Waiting for confirmation...", { id: 'deploy' });
+
       if (publicClient) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         const address = receipt.contractAddress || '0x...';
@@ -155,6 +160,11 @@ export function ContractDeployer() {
           console.error("Error logging deployment to Supabase:", err);
         }
 
+        toast.success(`${contractType} Deployed!`, { 
+          id: 'deploy',
+          description: `Contract live at ${address.substring(0, 6)}...${address.substring(38)}`
+        });
+
         saveToHistory({
           address,
           name: formData.name,
@@ -166,6 +176,10 @@ export function ContractDeployer() {
     } catch (error) {
       console.error('Deployment failed:', error);
       setDeployStep('Deployment failed');
+      toast.error("Deployment Failed", { 
+        id: 'deploy',
+        description: error instanceof Error ? error.message : "Failed to deploy contract."
+      });
     } finally {
       setIsDeploying(false);
       setDeployStep('');

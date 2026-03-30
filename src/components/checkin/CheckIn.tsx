@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Sun, Moon, Calendar, Zap, Loader2 } from 'lucide-react';
-import { useAccount, useSendTransaction } from 'wagmi';
+import { Sun, Moon, Calendar, Zap, Loader2, CheckCircle2 } from 'lucide-react';
+import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 import { supabase } from '../../supabase';
+import { toast } from 'sonner';
 
 export function CheckIn() {
   const { address } = useAccount();
   const { sendTransactionAsync } = useSendTransaction();
+  const publicClient = usePublicClient();
   const [streak, setStreak] = useState(0);
   const [totalCheckins, setTotalCheckins] = useState(0);
   const [lastAction, setLastAction] = useState<string | null>(null);
@@ -84,18 +86,24 @@ export function CheckIn() {
     setError(null);
     try {
       // 1. Send onchain transaction
-      // Send to a dedicated attribution address to ensure it works for both EOAs and Smart Wallets
-      // while still recording the presence onchain with the builder code.
+      toast.loading("Confirming in wallet...", { id: 'checkin' });
+      
       const hash = await sendTransactionAsync({
         to: '0x0000000000000000000000000000000000008021',
         value: 0n,
         data: BASE_BUILDER_CODE,
-        // Manual gas limit to prevent estimation failures on Smart Wallets
         gas: 50000n,
       });
 
-      // 2. Save to Supabase
-      const { error } = await supabase
+      toast.loading("Waiting for confirmation...", { id: 'checkin' });
+
+      // 2. Wait for confirmation
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash });
+      }
+
+      // 3. Save to Supabase
+      const { error: supabaseError } = await supabase
         .from('checkins')
         .insert([{
           user_address: address,
@@ -103,14 +111,25 @@ export function CheckIn() {
           tx_hash: hash
         }]);
 
-      if (error) throw error;
+      if (supabaseError) throw supabaseError;
+
+      toast.success(`${type} Check-in Successful!`, { 
+        id: 'checkin',
+        description: "Your presence has been recorded onchain.",
+        icon: <CheckCircle2 className="w-4 h-4 text-green-400" />
+      });
 
       setLastAction(type);
       setTotalCheckins(prev => prev + 1);
       setStreak(prev => prev + 1);
     } catch (err) {
       console.error("Check-in failed:", err);
-      setError(err instanceof Error ? err.message : "Check-in failed. Please ensure you have enough ETH for gas.");
+      const message = err instanceof Error ? err.message : "Check-in failed. Please ensure you have enough ETH for gas.";
+      setError(message);
+      toast.error("Check-in Failed", { 
+        id: 'checkin',
+        description: message.length > 60 ? "Transaction failed or was rejected." : message
+      });
     } finally {
       setIsPending(false);
     }
