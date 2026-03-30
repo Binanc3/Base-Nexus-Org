@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
@@ -39,6 +39,7 @@ function MainApp() {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { sendTransaction } = useSendTransaction();
+  const mainRef = useRef<HTMLElement>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
@@ -50,25 +51,39 @@ function MainApp() {
       setIsMiniApp(true);
     }
 
-    // Prevent pull-to-refresh globally
-    const preventDefault = (e: TouchEvent) => {
-      if (e.touches.length > 1) return;
-      const scrollY = window.scrollY || document.documentElement.scrollTop;
-      if (scrollY <= 0 && e.touches[0].clientY > 0) {
-        // Only prevent if we're at the top and trying to pull down
-        // But in many webviews, we just want to block it entirely on the body
-      }
-    };
-
     // A more aggressive approach for webviews/mini-apps
     document.body.style.overscrollBehavior = 'none';
     document.documentElement.style.overscrollBehavior = 'none';
 
+    // Prevent pull-to-refresh via touch events on the document
+    let startY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      startY = e.touches[0].pageY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0].pageY;
+      const main = mainRef.current;
+      const scrollTop = main ? main.scrollTop : (window.scrollY || document.documentElement.scrollTop);
+
+      // If at the top and pulling down, prevent default (which triggers reload)
+      if (scrollTop <= 0 && y > startY) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+
     return () => {
       document.body.style.overscrollBehavior = 'auto';
       document.documentElement.style.overscrollBehavior = 'auto';
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchmove', handleTouchMove);
     };
-  }, []);
+  }, []); // Run once on mount
 
   const handleCloseApp = () => {
     // Standard way to signal to host app to close
@@ -107,6 +122,24 @@ function MainApp() {
       });
     }
   };
+
+  useEffect(() => {
+    const trackUser = async () => {
+      if (address && isConnected) {
+        try {
+          // Check if user already checked in today or just log the connection
+          await supabase.from('checkins').insert([{ 
+            user_address: address,
+            type: 'connection'
+          }]);
+        } catch (err) {
+          // Ignore errors (e.g. if table doesn't exist or unique constraint)
+          console.warn("User tracking failed:", err);
+        }
+      }
+    };
+    trackUser();
+  }, [address, isConnected]);
 
   const [hasPeeked, setHasPeeked] = useState(false);
   const [globalStats, setGlobalStats] = useState({
@@ -342,10 +375,13 @@ function MainApp() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 lg:p-8 overflow-y-auto relative pb-24 lg:pb-8 overscroll-none touch-pan-y">
+      <main 
+        ref={mainRef}
+        className="flex-1 p-4 lg:p-8 overflow-y-auto relative pb-24 lg:pb-8 overscroll-none touch-pan-y"
+      >
         <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-blue-600/5 blur-[150px] pointer-events-none" />
         
-        <header className="flex justify-between items-center mb-8 lg:mb-12 relative z-10">
+        <header className="flex justify-between items-center mb-8 lg:mb-12 relative z-10 max-w-7xl mx-auto">
           <div>
             <h2 className="text-2xl lg:text-3xl font-bold tracking-tight">
               {tabs.find(t => t.id === activeTab)?.label}
