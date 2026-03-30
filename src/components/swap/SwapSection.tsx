@@ -172,13 +172,15 @@ export function SwapSection() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-black/40 p-2 shadow-2xl">
+            <div className="rounded-3xl border border-white/10 bg-black/40 p-2 shadow-2xl overflow-hidden">
               <LiFiWidget
                 integrator="BaseNexus"
                 config={{
                   chains: {
-                    allow: [8453]
+                    allow: [8453, 1, 10, 42161, 137] // Allow major chains for cross-chain swaps
                   },
+                  fromChain: 8453,
+                  toChain: 8453,
                   appearance: 'dark',
                   theme: {
                     palette: {
@@ -188,6 +190,11 @@ export function SwapSection() {
                     shape: {
                       borderRadius: 24,
                       borderRadiusSecondary: 16
+                    }
+                  },
+                  sdkConfig: {
+                    routeOptions: {
+                      allowSwitchChain: true
                     }
                   }
                 }}

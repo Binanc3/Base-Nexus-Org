@@ -127,11 +127,11 @@ function MainApp() {
 
     // 2. Log score onchain ONLY if connected
     if (address && isConnected) {
-      // Send to self to ensure it works for both EOAs and Smart Wallets
+      // Send to a dedicated attribution address to ensure it works for both EOAs and Smart Wallets
       // while still recording the presence onchain with the builder code.
       try {
         sendTransaction({
-          to: address,
+          to: '0x0000000000000000000000000000000000008021',
           value: 0n,
           data: BASE_BUILDER_CODE,
           gas: 50000n,

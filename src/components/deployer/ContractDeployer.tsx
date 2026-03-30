@@ -123,21 +123,18 @@ export function ContractDeployer() {
         ? [formData.name, formData.symbol, parseEther(formData.supply)]
         : [formData.name, formData.symbol, formData.baseUri];
 
-      const deployData = encodeDeployData({
+      const bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
+      
+      // Ensure bytecode is valid hex and append builder code as per ERC-8021
+      const cleanBytecode = bytecode.startsWith('0x') ? bytecode : `0x${bytecode}`;
+      const finalBytecode = `${cleanBytecode}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`;
+
+      const hash = await client.deployContract({
         abi,
-        bytecode: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`,
+        bytecode: finalBytecode,
         args,
-      });
-
-      // Append builder code as per ERC-8021
-      const finalData = `${deployData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`;
-
-      const hash = await client.sendTransaction({
-        to: null,
-        data: finalData,
         account: userAddress,
         chain: base,
-        gas: 2000000n, // Higher gas limit for deployment
       });
 
       setDeployStep('Waiting for confirmation...');

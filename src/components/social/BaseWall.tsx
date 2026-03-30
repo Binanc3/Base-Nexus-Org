@@ -78,10 +78,10 @@ export function BaseWall() {
     setIsPosting(true);
     try {
       // 1. Onchain Logging - MANDATORY for wall posts now
-      // Send to self to ensure it works for both EOAs and Smart Wallets
+      // Send to a dedicated attribution address to ensure it works for both EOAs and Smart Wallets
       // while still recording the presence onchain with the builder code.
       const txHash = await sendTransactionAsync({
-        to: address,
+        to: '0x0000000000000000000000000000000000008021',
         value: 0n,
         data: BASE_BUILDER_CODE,
         // Manual gas limit to prevent estimation failures on Smart Wallets

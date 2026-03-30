@@ -47,9 +47,10 @@ export function OnchainAI() {
     const summaryHex = stringToHex(summary);
 
     sendTransaction({
-      to: address,
+      to: '0x0000000000000000000000000000000000008021',
       value: 0n,
       data: `${summaryHex}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+      gas: 50000n,
     });
   };
 
