@@ -8,11 +8,9 @@ import { OnchainAI } from './components/ai/OnchainAI';
 import { ContractDeployer } from './components/deployer/ContractDeployer';
 import { CheckIn } from './components/checkin/CheckIn';
 import { ProfileSection } from './components/profile/ProfileSection';
-import { BaseWall } from './components/social/BaseWall';
 import { cn } from '@/src/lib/utils';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from './lib/wagmi';
-import { sdk } from "@farcaster/miniapp-sdk";
 import { 
   LayoutDashboard, 
   Gamepad2, 
@@ -31,7 +29,9 @@ import {
   Zap,
   Activity
 } from 'lucide-react';
+import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
+
 import { supabase } from './supabase';
 
 function MainApp() {
@@ -39,55 +39,46 @@ function MainApp() {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   const { sendTransaction } = useSendTransaction();
-  
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
 
-  // Detect if running inside an iframe (Farcaster Mini App)
   useEffect(() => {
+    // Detect if running inside an iframe (common for Mini Apps)
     if (window.self !== window.top) {
       setIsMiniApp(true);
     }
   }, []);
 
-  // ←←← Farcaster Mini App READY SIGNAL (this is what fixes "Not Ready")
-  useEffect(() => {
-    const markReady = async () => {
-      try {
-        console.log("📡 Sending ready signal to Farcaster...");
-        await sdk.actions.ready();
-        console.log("✅ Mini app is now READY");
-      } catch (err) {
-        console.error("❌ Ready signal failed:", err);
-      }
-    };
-
-    markReady();
-  }, []);
-
   const handleCloseApp = () => {
+    // Standard way to signal to host app to close
     window.parent.postMessage({ type: 'close' }, '*');
+    // Fallback for some environments
     window.close();
   };
 
   const handleGameComplete = async (game: string, score: number) => {
     setLastScore({ game, score });
     
+    // 1. Save to Supabase for Leaderboard
     try {
       const { error } = await supabase
         .from('leaderboards')
-        .insert([{ 
-          game_id: game, 
-          user_address: address || 'Guest', 
-          score: score 
-        }]);
+        .insert([
+          { 
+            game_id: game, 
+            user_address: address || 'Guest', 
+            score: score 
+          }
+        ]);
+      
       if (error) throw error;
     } catch (error) {
       console.error("Error saving to leaderboard:", error);
     }
 
+    // 2. Log score onchain ONLY if connected
     if (address && isConnected) {
       const scoreData = stringToHex(`SCORE:${game}:${score}`);
       sendTransaction({
@@ -108,14 +99,17 @@ function MainApp() {
   useEffect(() => {
     const fetchGlobalStats = async () => {
       try {
-        const { count: userCount } = await supabase.from('leaderboards').select('user_address', { count: 'exact', head: true });
+        // Count unique users by fetching all addresses and using a Set
+        const { data: userData } = await supabase.from('leaderboards').select('user_address');
+        const uniqueUsers = new Set(userData?.map(u => u.user_address)).size;
+
         const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true });
         const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
         const { count: deployCount } = await supabase.from('deployments').select('*', { count: 'exact', head: true });
         const { count: checkinCount } = await supabase.from('checkins').select('*', { count: 'exact', head: true });
 
         setGlobalStats({
-          users: userCount || 0,
+          users: uniqueUsers || 0,
           actions: (gameCount || 0) + (messageCount || 0) + (deployCount || 0) + (checkinCount || 0),
           games: gameCount || 0,
           messages: messageCount || 0
@@ -139,7 +133,7 @@ function MainApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#050b18] text-white flex flex-col lg:flex-row">
+    <div className="h-[100dvh] bg-[#050b18] text-white flex flex-col lg:flex-row overflow-hidden">
       {/* Connect Modal Overlay */}
       <AnimatePresence>
         {showConnectModal && (
@@ -245,18 +239,18 @@ function MainApp() {
       </aside>
 
       {/* Bottom Nav - Mobile */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/40 backdrop-blur-2xl border-t border-white/10 px-2 py-3 flex justify-around items-center">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-2xl border-t border-white/10 px-4 py-3 flex justify-start items-center gap-8 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "flex flex-col items-center gap-1 transition-all",
+              "flex flex-col items-center gap-1 transition-all shrink-0",
               activeTab === tab.id ? "text-blue-400" : "text-white/40"
             )}
           >
             <tab.icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium">{tab.label}</span>
+            <span className="text-[10px] font-medium whitespace-nowrap">{tab.label}</span>
           </button>
         ))}
       </nav>
@@ -300,9 +294,100 @@ function MainApp() {
                         Global Reach
                       </div>
                     </GlassCard>
-                    {/* ... rest of your dashboard cards (unchanged) ... */}
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Total Actions</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.actions.toLocaleString()}</div>
+                      <div className="text-[10px] text-purple-400 mt-1 flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        Onchain Activity
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Games Played</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.games.toLocaleString()}</div>
+                      <div className="text-[10px] text-yellow-400 mt-1 flex items-center gap-1">
+                        <Trophy className="w-3 h-3" />
+                        Arcade Usage
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6">
+                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Messages</h3>
+                      <div className="text-2xl font-bold text-white">{globalStats.messages.toLocaleString()}</div>
+                      <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        Base Wall Posts
+                      </div>
+                    </GlassCard>
                   </div>
-                  {/* ... rest of dashboard content (unchanged) ... */}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <GlassCard className="lg:col-span-2 p-6 overflow-hidden relative">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-3xl rounded-full -mr-16 -mt-16" />
+                      <h3 className="text-white font-bold mb-6 flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-blue-400" />
+                        Network Status
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 hover:border-green-400/30 transition-colors">
+                          <div className="text-[10px] text-white/40 uppercase mb-1 font-bold tracking-widest">Status</div>
+                          <div className="flex items-center gap-2 text-green-400 font-bold">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                            Operational
+                          </div>
+                        </div>
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 hover:border-blue-400/30 transition-colors">
+                          <div className="text-[10px] text-white/40 uppercase mb-1 font-bold tracking-widest">Chain</div>
+                          <div className="text-white font-bold">Base Mainnet</div>
+                        </div>
+                        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 hover:border-purple-400/30 transition-colors">
+                          <div className="text-[10px] text-white/40 uppercase mb-1 font-bold tracking-widest">Protocol</div>
+                          <div className="text-blue-400 font-bold">ERC-8021</div>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-8 pt-6 border-t border-white/5">
+                        <h4 className="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">Recent Activity Feed</h4>
+                        <div className="space-y-3">
+                          {[1, 2, 3].map((i) => (
+                            <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-white/5 last:border-0">
+                              <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-blue-500/40" />
+                                <span className="text-white/80">Onchain action detected</span>
+                              </div>
+                              <span className="text-white/20 font-mono">Just now</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </GlassCard>
+                    <GlassCard className="p-6 bg-gradient-to-br from-blue-600/20 to-purple-600/20 border-blue-500/30">
+                      <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-yellow-400" />
+                        Nexus Tip
+                      </h3>
+                      <p className="text-sm text-white/60 leading-relaxed mb-6">
+                        Every action you take on BaseNexus—from playing games to posting on the wall—is logged onchain. 
+                        Build your onchain reputation and track your progress in the Profile section!
+                      </p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                          <span className="text-xs text-white/60">Ecosystem Status</span>
+                          <span className="text-xs font-bold text-green-400">Stable</span>
+                        </div>
+                        <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                          <span className="text-xs text-white/60">Gas Price</span>
+                          <span className="text-xs font-bold text-blue-400">Low</span>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        className="mt-6 text-xs text-blue-400 p-0 hover:bg-transparent w-full justify-start"
+                        onClick={() => setActiveTab('profile')}
+                      >
+                        View My Stats →
+                      </Button>
+                    </GlassCard>
+                  </div>
                 </div>
               )}
 

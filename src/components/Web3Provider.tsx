@@ -8,8 +8,6 @@ import { base } from 'viem/chains';
 const queryClient = new QueryClient();
 
 export function Web3Provider({ children }: { children: ReactNode }) {
-  console.log("🚀 Web3Provider mounted");   // Optional debug log
-
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>

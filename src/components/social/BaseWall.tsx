@@ -24,19 +24,23 @@ export function BaseWall() {
   const [newMessage, setNewMessage] = useState('');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchMessages = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
+      const { data, error: supabaseError } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (error) throw error;
+      if (supabaseError) throw supabaseError;
       setMessages(data || []);
-    } catch (error) {
-      console.error("Error fetching messages:", error);
+    } catch (err) {
+      console.error("Error fetching messages:", err);
+      setError("Failed to load messages. Please check your connection.");
     } finally {
       setIsLoading(false);
     }
@@ -55,7 +59,12 @@ export function BaseWall() {
       }, () => {
         fetchMessages();
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Real-time subscription error');
+          setError("Real-time updates may be unavailable.");
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -158,6 +167,11 @@ export function BaseWall() {
       </GlassCard>
 
       <div className="space-y-4">
+        {error && (
+          <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm text-center italic">
+            {error}
+          </div>
+        )}
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
@@ -212,7 +226,7 @@ export function BaseWall() {
                           )}
                         </div>
                         <div className="text-[9px] text-white/10 font-mono">
-                          ID: {msg.id.substring(0, 8)}
+                          ID: {String(msg.id).substring(0, 8)}
                         </div>
                       </div>
                     </div>

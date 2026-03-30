@@ -395,7 +395,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
 
   const jump = () => {
     if (!player.current.isJumping && isPlaying && !isGameOver) {
-      player.current.vy = -12;
+      player.current.vy = 14;
       player.current.isJumping = true;
     }
   };
@@ -438,9 +438,9 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
 
       // Player physics
       player.current.y += player.current.vy;
-      player.current.vy += 0.6; // Gravity
+      player.current.vy -= 0.6; // Gravity
       
-      if (player.current.y >= 0) {
+      if (player.current.y <= 0) {
         player.current.y = 0;
         player.current.vy = 0;
         player.current.isJumping = false;
@@ -472,7 +472,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
       }
 
       // Obstacles
-      gameSpeed.current = 6 + (score / 150);
+      gameSpeed.current = 5 + (score / 150);
       backgroundX.current -= gameSpeed.current;
 
       if (time - lastObstacleTime.current > Math.max(700, 1800 - score * 1.5)) {
