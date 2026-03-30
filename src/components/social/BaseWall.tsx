@@ -77,37 +77,33 @@ export function BaseWall() {
 
     setIsPosting(true);
     try {
-      // 1. Optional Onchain Logging (Cool for "Onchain Social")
-      // We send a 0 ETH transaction to self with the message hash/content
-      let txHash: string | undefined;
-      try {
-        const messageData = stringToHex(`MSG:${newMessage.trim().substring(0, 20)}`);
-        const hash = await sendTransactionAsync({
-          to: address,
-          value: 0n,
-          data: `${messageData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
-        });
-        txHash = hash;
-      } catch (txError) {
-        console.warn("Onchain logging skipped or failed:", txError);
-      }
+      // 1. Onchain Logging - MANDATORY for wall posts now
+      const messageData = stringToHex(`MSG:${newMessage.trim().substring(0, 20)}`);
+      const txHash = await sendTransactionAsync({
+        to: address,
+        value: 0n,
+        data: `${messageData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+      });
 
-      // 2. Save to Supabase
-      const { error } = await supabase
+      if (!txHash) throw new Error("Transaction failed or was rejected");
+
+      // 2. Save to Supabase ONLY if tx was successful
+      const { error: supabaseError } = await supabase
         .from('messages')
         .insert([
           {
             content: newMessage.trim(),
             user_address: address,
-            tx_hash: txHash || null
+            tx_hash: txHash
           }
         ]);
 
-      if (error) throw error;
+      if (supabaseError) throw supabaseError;
 
       setNewMessage('');
     } catch (error) {
       console.error("Error posting message:", error);
+      setError(error instanceof Error ? error.message : "Failed to post message. Ensure transaction is confirmed.");
     } finally {
       setIsPosting(false);
     }

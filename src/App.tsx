@@ -49,6 +49,25 @@ function MainApp() {
     if (window.self !== window.top) {
       setIsMiniApp(true);
     }
+
+    // Prevent pull-to-refresh globally
+    const preventDefault = (e: TouchEvent) => {
+      if (e.touches.length > 1) return;
+      const scrollY = window.scrollY || document.documentElement.scrollTop;
+      if (scrollY <= 0 && e.touches[0].clientY > 0) {
+        // Only prevent if we're at the top and trying to pull down
+        // But in many webviews, we just want to block it entirely on the body
+      }
+    };
+
+    // A more aggressive approach for webviews/mini-apps
+    document.body.style.overscrollBehavior = 'none';
+    document.documentElement.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.overscrollBehavior = 'auto';
+      document.documentElement.style.overscrollBehavior = 'auto';
+    };
   }, []);
 
   const handleCloseApp = () => {
@@ -115,9 +134,27 @@ function MainApp() {
   useEffect(() => {
     const fetchGlobalStats = async () => {
       try {
-        // Count unique users by fetching all addresses and using a Set
-        const { data: userData } = await supabase.from('leaderboards').select('user_address');
-        const uniqueUsers = new Set(userData?.map(u => u.user_address)).size;
+        // Count unique users across ALL tables
+        const [
+          { data: leaderboardUsers },
+          { data: messageUsers },
+          { data: deployUsers },
+          { data: checkinUsers }
+        ] = await Promise.all([
+          supabase.from('leaderboards').select('user_address'),
+          supabase.from('messages').select('user_address'),
+          supabase.from('deployments').select('user_address'),
+          supabase.from('checkins').select('user_address')
+        ]);
+
+        const allAddresses = [
+          ...(leaderboardUsers?.map(u => u.user_address) || []),
+          ...(messageUsers?.map(u => u.user_address) || []),
+          ...(deployUsers?.map(u => u.user_address) || []),
+          ...(checkinUsers?.map(u => u.user_address) || [])
+        ];
+
+        const uniqueUsers = new Set(allAddresses.filter(Boolean)).size;
 
         const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true });
         const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
@@ -323,7 +360,7 @@ function MainApp() {
           </div>
         </header>
 
-        <div className="relative z-10">
+        <div className="relative z-10 max-w-7xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -333,38 +370,38 @@ function MainApp() {
               transition={{ duration: 0.2 }}
             >
               {activeTab === 'dashboard' && (
-                <div className="space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <GlassCard className="p-6">
-                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Total Users</h3>
-                      <div className="text-2xl font-bold text-white">{globalStats.users.toLocaleString()}</div>
-                      <div className="text-[10px] text-blue-400 mt-1 flex items-center gap-1">
+                <div className="space-y-8 pb-12">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                    <GlassCard className="p-4 lg:p-6">
+                      <h3 className="text-white/60 text-[9px] lg:text-[10px] uppercase tracking-widest font-bold mb-2">Total Users</h3>
+                      <div className="text-xl lg:text-2xl font-bold text-white">{globalStats.users.toLocaleString()}</div>
+                      <div className="text-[9px] lg:text-[10px] text-blue-400 mt-1 flex items-center gap-1">
                         <Globe className="w-3 h-3" />
-                        Global Reach
+                        Connected Wallets
                       </div>
                     </GlassCard>
-                    <GlassCard className="p-6">
-                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Total Actions</h3>
-                      <div className="text-2xl font-bold text-white">{globalStats.actions.toLocaleString()}</div>
-                      <div className="text-[10px] text-purple-400 mt-1 flex items-center gap-1">
+                    <GlassCard className="p-4 lg:p-6">
+                      <h3 className="text-white/60 text-[9px] lg:text-[10px] uppercase tracking-widest font-bold mb-2">Total Actions</h3>
+                      <div className="text-xl lg:text-2xl font-bold text-white">{globalStats.actions.toLocaleString()}</div>
+                      <div className="text-[9px] lg:text-[10px] text-purple-400 mt-1 flex items-center gap-1">
                         <Zap className="w-3 h-3" />
                         Onchain Activity
                       </div>
                     </GlassCard>
-                    <GlassCard className="p-6">
-                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Games Played</h3>
-                      <div className="text-2xl font-bold text-white">{globalStats.games.toLocaleString()}</div>
-                      <div className="text-[10px] text-yellow-400 mt-1 flex items-center gap-1">
+                    <GlassCard className="p-4 lg:p-6">
+                      <h3 className="text-white/60 text-[9px] lg:text-[10px] uppercase tracking-widest font-bold mb-2">Games Played</h3>
+                      <div className="text-xl lg:text-2xl font-bold text-white">{globalStats.games.toLocaleString()}</div>
+                      <div className="text-[9px] lg:text-[10px] text-yellow-400 mt-1 flex items-center gap-1">
                         <Trophy className="w-3 h-3" />
                         Arcade Usage
                       </div>
                     </GlassCard>
-                    <GlassCard className="p-6">
-                      <h3 className="text-white/60 text-[10px] uppercase tracking-widest font-bold mb-2">Messages</h3>
-                      <div className="text-2xl font-bold text-white">{globalStats.messages.toLocaleString()}</div>
-                      <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">
+                    <GlassCard className="p-4 lg:p-6">
+                      <h3 className="text-white/60 text-[9px] lg:text-[10px] uppercase tracking-widest font-bold mb-2">Messages</h3>
+                      <div className="text-xl lg:text-2xl font-bold text-white">{globalStats.messages.toLocaleString()}</div>
+                      <div className="text-[9px] lg:text-[10px] text-green-400 mt-1 flex items-center gap-1">
                         <MessageSquare className="w-3 h-3" />
-                        Base Wall Posts
+                        Wall Posts
                       </div>
                     </GlassCard>
                   </div>
