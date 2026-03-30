@@ -1,21 +1,23 @@
 {
-  "short_name": "BaseNexus",
-  "name": "BaseNexus: The Onchain Hub",
-  "icons": [
-    {
-      "src": "https://picsum.photos/seed/base/192/192",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "https://picsum.photos/seed/base/512/512",
-      "type": "image/png",
-      "sizes": "512x512"
-    }
-  ],
-  "start_url": "/",
-  "background_color": "#000000",
-  "display": "standalone",
-  "theme_color": "#0052FF",
-  "description": "The ultimate social and gaming hub on Base."
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "frame": {
+    "version": "1",
+    "name": "Base Nexus",
+    "iconUrl": "https://base-nexus.vercel.app/icon.png",
+    "homeUrl": "https://base-nexus.vercel.app",
+    "splashImageUrl": "https://base-nexus.vercel.app/splash.png",
+    "splashBackgroundColor": "#000000",
+    "webhookUrl": "https://base-nexus.vercel.app/api/webhook"
+  }
 }
+
+## Also check these two things:
+
+1. **Vercel Deployment Protection must be OFF** — Go to your Vercel dashboard → your project → **Settings → Deployment Protection** → toggle off "Vercel Authentication". This is almost certainly why it can't find your manifest even if the file exists.
+
+2. **Test the manifest URL directly** — Open this in your browser:
+   https://base-nexus.vercel.app/.well-known/farcaster.json
