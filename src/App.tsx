@@ -89,12 +89,28 @@ function MainApp() {
     }
   };
 
+  const [hasPeeked, setHasPeeked] = useState(false);
   const [globalStats, setGlobalStats] = useState({
     users: 0,
     actions: 0,
     games: 0,
     messages: 0
   });
+
+  useEffect(() => {
+    if (!hasPeeked && isMiniApp) {
+      const nav = document.querySelector('.bottom-nav-scroll');
+      if (nav) {
+        setTimeout(() => {
+          nav.scrollTo({ left: 40, behavior: 'smooth' });
+          setTimeout(() => {
+            nav.scrollTo({ left: 0, behavior: 'smooth' });
+            setHasPeeked(true);
+          }, 800);
+        }, 1000);
+      }
+    }
+  }, [isMiniApp, hasPeeked]);
 
   useEffect(() => {
     const fetchGlobalStats = async () => {
@@ -239,24 +255,57 @@ function MainApp() {
       </aside>
 
       {/* Bottom Nav - Mobile */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-2xl border-t border-white/10 px-4 py-3 flex justify-start items-center gap-8 overflow-x-auto no-scrollbar">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              "flex flex-col items-center gap-1 transition-all shrink-0",
-              activeTab === tab.id ? "text-blue-400" : "text-white/40"
-            )}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        <nav 
+          className="bg-black/80 backdrop-blur-3xl border-t border-white/10 px-6 py-4 flex justify-start items-center gap-10 overflow-x-auto no-scrollbar mask-fade-right bottom-nav-scroll"
+          onScroll={(e) => {
+            const target = e.currentTarget;
+            if (target.scrollLeft > 20) {
+              target.classList.remove('mask-fade-right');
+            } else {
+              target.classList.add('mask-fade-right');
+            }
+          }}
+        >
+          {tabs.map((tab, index) => (
+            <motion.button
+              key={tab.id}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex flex-col items-center gap-1.5 transition-all shrink-0",
+                activeTab === tab.id ? "text-blue-400 scale-110" : "text-white/40 hover:text-white/60"
+              )}
+            >
+              <tab.icon className="w-5 h-5" />
+              <span className="text-[10px] font-bold tracking-tight uppercase whitespace-nowrap">{tab.label}</span>
+              {activeTab === tab.id && (
+                <motion.div 
+                  layoutId="activeTab"
+                  className="w-1 h-1 bg-blue-400 rounded-full mt-0.5"
+                />
+              )}
+            </motion.button>
+          ))}
+        </nav>
+        {/* Scroll Hint */}
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center gap-1 lg:hidden">
+          <motion.div 
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: [0, 1, 0], x: [10, 0, 10] }}
+            transition={{ duration: 2, repeat: Infinity }}
+            className="flex items-center gap-1"
           >
-            <tab.icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium whitespace-nowrap">{tab.label}</span>
-          </button>
-        ))}
-      </nav>
+            <span className="text-[8px] font-bold text-blue-400 uppercase tracking-tighter">More</span>
+            <div className="w-1 h-1 bg-blue-400 rounded-full blur-[1px]" />
+          </motion.div>
+        </div>
+      </div>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 lg:p-8 overflow-y-auto relative pb-24 lg:pb-8">
+      <main className="flex-1 p-4 lg:p-8 overflow-y-auto relative pb-24 lg:pb-8 overscroll-none touch-pan-y">
         <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-blue-600/5 blur-[150px] pointer-events-none" />
         
         <header className="flex justify-between items-center mb-8 lg:mb-12 relative z-10">
