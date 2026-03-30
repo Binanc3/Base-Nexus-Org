@@ -130,32 +130,35 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
       id: Date.now() + Math.random(),
       x: Math.random() * (canvas.width - 100) + 50,
       y: canvas.height + 50,
-      vx: (Math.random() - 0.5) * 4,
-      vy: -(Math.random() * 5 + 12),
+      vx: (Math.random() - 0.5) * 2.5,
+      vy: -(Math.random() * 3 + 8), // Reduced initial speed
       type: type.emoji,
       color: type.color,
       isBomb: type.isBomb,
       radius: 25,
       rotation: 0,
-      vr: (Math.random() - 0.5) * 0.2,
-      sliced: false
+      vr: (Math.random() - 0.5) * 0.15,
+      sliced: false,
+      sliceAngle: 0
     });
   };
 
-  const createParticles = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 12; i++) {
+  const createParticles = (x: number, y: number, color: string, count = 12) => {
+    for (let i = 0; i < count; i++) {
       particlesRef.current.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 10,
-        vy: (Math.random() - 0.5) * 10,
-        radius: Math.random() * 4 + 2,
+        vx: (Math.random() - 0.5) * 12,
+        vy: (Math.random() - 0.5) * 12,
+        radius: Math.random() * 5 + 2,
         color,
         life: 1.0,
-        decay: Math.random() * 0.02 + 0.02
+        decay: Math.random() * 0.03 + 0.02
       });
     }
   };
+
+  const [shake, setShake] = useState(0);
 
   const update = (time: number) => {
     const canvas = canvasRef.current;
@@ -163,13 +166,19 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
     if (!canvas || !ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (shake > 0) {
+      ctx.save();
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+      setShake(s => Math.max(0, s - 0.5));
+    }
 
     if (isPlaying && !isGameOver) {
       // Difficulty scaling
-      difficulty.current = 1 + Math.floor(score / 50) * 0.2;
+      difficulty.current = 1 + Math.floor(score / 50) * 0.12;
 
       // Spawning
-      const spawnDelay = Math.max(400, 1200 / difficulty.current);
+      const spawnDelay = Math.max(800, 2000 / difficulty.current);
       if (time - lastSpawnTime.current > spawnDelay) {
         spawnFruit();
         lastSpawnTime.current = time;
@@ -180,24 +189,53 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
         const f = fruitsRef.current[i];
         f.x += f.vx;
         f.y += f.vy;
-        f.vy += 0.25; // Gravity
+        f.vy += 0.18; // Reduced gravity
         f.rotation += f.vr;
 
         // Draw fruit
         ctx.save();
         ctx.translate(f.x, f.y);
         ctx.rotate(f.rotation);
-        ctx.font = '40px serif';
+        ctx.font = '44px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
         if (f.sliced) {
-          // Draw two halves
-          ctx.globalAlpha = f.opacity || 1;
-          ctx.fillText(f.type, -10, 0);
-          ctx.fillText(f.type, 10, 0);
-        } else {
+          // Draw two halves with offset
+          ctx.save();
+          ctx.rotate(f.sliceAngle);
+          ctx.globalAlpha = f.life || 1;
+          
+          // Left half
+          ctx.save();
+          ctx.translate(-15, -5);
+          ctx.rotate(-0.2);
           ctx.fillText(f.type, 0, 0);
+          ctx.restore();
+          
+          // Right half
+          ctx.save();
+          ctx.translate(15, 5);
+          ctx.rotate(0.2);
+          ctx.fillText(f.type, 0, 0);
+          ctx.restore();
+          
+          ctx.restore();
+          
+          f.life = (f.life || 1) - 0.02;
+          if (f.life <= 0) {
+            fruitsRef.current.splice(i, 1);
+            ctx.restore();
+            continue;
+          }
+        } else {
+          // Glow effect for bombs
+          if (f.isBomb) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ef4444';
+          }
+          ctx.fillText(f.type, 0, 0);
+          ctx.shadowBlur = 0;
         }
         ctx.restore();
 
@@ -223,7 +261,7 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
         const p = particlesRef.current[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.vy += 0.1;
+        p.vy += 0.15;
         p.life -= p.decay;
 
         if (p.life <= 0) {
@@ -239,24 +277,38 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
         ctx.globalAlpha = 1;
       }
 
-      // Draw trail
+      // Draw trail (Slash Effect)
       if (trailRef.current.length > 1) {
         ctx.beginPath();
         ctx.moveTo(trailRef.current[0].x, trailRef.current[0].y);
         for (let i = 1; i < trailRef.current.length; i++) {
           ctx.lineTo(trailRef.current[i].x, trailRef.current[i].y);
         }
-        ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)';
-        ctx.lineWidth = 4;
+        
+        const gradient = ctx.createLinearGradient(
+          trailRef.current[0].x, trailRef.current[0].y,
+          trailRef.current[trailRef.current.length-1].x, trailRef.current[trailRef.current.length-1].y
+        );
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        gradient.addColorStop(1, 'rgba(59, 130, 246, 0.9)');
+        
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = 6;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#3b82f6';
         ctx.stroke();
+        ctx.shadowBlur = 0;
       }
 
       // Clean up old trail points
       const now = performance.now();
-      trailRef.current = trailRef.current.filter(p => now - p.time < 150);
+      trailRef.current = trailRef.current.filter(p => now - p.time < 120);
     }
 
+    if (shake > 0) ctx.restore();
     requestRef.current = requestAnimationFrame(update);
   };
 
@@ -265,7 +317,7 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, isGameOver, score]);
+  }, [isPlaying, isGameOver, score, shake]);
 
   const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isPlaying || isGameOver) return;
@@ -283,17 +335,22 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
       const f = fruitsRef.current[i];
       if (!f.sliced) {
         const dist = Math.sqrt((f.x - x) ** 2 + (f.y - y) ** 2);
-        if (dist < f.radius + 10) {
+        if (dist < f.radius + 15) {
           if (f.isBomb) {
             setIsGameOver(true);
             setIsPlaying(false);
             onComplete(score);
-            createParticles(f.x, f.y, '#f87171');
+            setShake(20);
+            createParticles(f.x, f.y, '#ef4444', 30);
           } else {
             f.sliced = true;
-            f.vx *= 2;
-            f.vr *= 5;
+            f.life = 1.0;
+            f.vx *= 1.5;
+            f.vy = -2;
+            f.vr *= 4;
+            f.sliceAngle = Math.atan2(y - f.y, x - f.x);
             setScore(s => s + 1);
+            setShake(5);
             createParticles(f.x, f.y, f.color);
           }
         }
@@ -379,6 +436,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
   });
 
   const obstacles = useRef<any[]>([]);
+  const particles = useRef<any[]>([]);
   const backgroundX = useRef(0);
   const lastObstacleTime = useRef(0);
   const gameSpeed = useRef(5);
@@ -389,6 +447,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
     setScore(0);
     player.current = { y: 0, vy: 0, width: 40, height: 40, isJumping: false, frame: 0 };
     obstacles.current = [];
+    particles.current = [];
     gameSpeed.current = 5;
     lastObstacleTime.current = performance.now();
   };
@@ -410,25 +469,50 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
     if (isPlaying && !isGameOver) {
       // Sky gradient
       const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      skyGradient.addColorStop(0, '#0f172a');
-      skyGradient.addColorStop(1, '#1e293b');
+      skyGradient.addColorStop(0, '#020617');
+      skyGradient.addColorStop(1, '#0f172a');
       ctx.fillStyle = skyGradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Background parallax (Distant buildings)
-      ctx.fillStyle = '#0f172a';
-      for (let i = 0; i < 10; i++) {
-        const x = (backgroundX.current * 0.2 + i * 150) % (canvas.width + 150) - 150;
-        ctx.fillRect(x, canvas.height - 120, 80, 80);
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.1)';
-        ctx.fillRect(x + 10, canvas.height - 110, 10, 10);
+      // Distant Stars
+      ctx.fillStyle = 'white';
+      for (let i = 0; i < 20; i++) {
+        const x = (backgroundX.current * 0.05 + i * 100) % canvas.width;
+        const y = (i * 37) % (canvas.height - 100);
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(x, y, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+
+      // Background parallax (Distant Cyber City)
+      for (let i = 0; i < 8; i++) {
+        const x = (backgroundX.current * 0.15 + i * 200) % (canvas.width + 200) - 200;
         ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x, canvas.height - 180, 120, 140);
+        // Windows
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.15)';
+        for (let row = 0; row < 5; row++) {
+          for (let col = 0; col < 3; col++) {
+            ctx.fillRect(x + 15 + col * 30, canvas.height - 170 + row * 25, 15, 15);
+          }
+        }
       }
 
       // Ground
-      ctx.fillStyle = '#334155';
+      ctx.fillStyle = '#1e293b';
       ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
       
+      // Ground grid lines
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.2)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < canvas.width; i += 50) {
+        const x = (backgroundX.current + i) % canvas.width;
+        ctx.beginPath();
+        ctx.moveTo(x, canvas.height - 40);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+
       // Ground glow
       ctx.shadowBlur = 20;
       ctx.shadowColor = '#3b82f6';
@@ -438,7 +522,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
 
       // Player physics
       player.current.y += player.current.vy;
-      player.current.vy -= 0.6; // Gravity
+      player.current.vy -= 0.7; // Gravity
       
       if (player.current.y <= 0) {
         player.current.y = 0;
@@ -450,37 +534,85 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
       const px = 100;
       const py = canvas.height - 40 - player.current.height - player.current.y;
       
+      // Squash and stretch
+      let drawWidth = player.current.width;
+      let drawHeight = player.current.height;
+      if (player.current.isJumping) {
+        if (player.current.vy > 0) {
+          drawHeight += 10;
+          drawWidth -= 5;
+        } else {
+          drawHeight -= 5;
+          drawWidth += 5;
+        }
+      }
+
+      // Player tilt animation
+      ctx.save();
+      ctx.translate(px + drawWidth/2, py + drawHeight/2);
+      if (!player.current.isJumping) {
+        ctx.rotate(Math.sin(time / 100) * 0.1);
+      }
+      
       // Player body
       ctx.fillStyle = '#3b82f6';
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 20;
       ctx.shadowColor = '#3b82f6';
       ctx.beginPath();
-      ctx.roundRect(px, py, player.current.width, player.current.height, 8);
+      ctx.roundRect(-drawWidth/2, -drawHeight/2, drawWidth, drawHeight, 10);
       ctx.fill();
       ctx.shadowBlur = 0;
       
       // Player eye
       ctx.fillStyle = 'white';
-      ctx.fillRect(px + 25, py + 10, 8, 8);
+      ctx.fillRect(drawWidth/2 - 15, -drawHeight/2 + 10, 10, 10);
+      ctx.restore();
       
-      // Jump particles
-      if (player.current.isJumping) {
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+      // Running particles
+      if (!player.current.isJumping) {
+        if (Math.random() > 0.5) {
+          particles.current.push({
+            x: px,
+            y: canvas.height - 45,
+            vx: -2 - Math.random() * 2,
+            vy: -Math.random() * 2,
+            life: 1.0,
+            decay: 0.05,
+            color: 'rgba(59, 130, 246, 0.4)',
+            radius: Math.random() * 3 + 1
+          });
+        }
+      }
+
+      // Update particles
+      for (let i = particles.current.length - 1; i >= 0; i--) {
+        const p = particles.current[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= p.decay;
+        if (p.life <= 0) {
+          particles.current.splice(i, 1);
+          continue;
+        }
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life;
         ctx.beginPath();
-        ctx.arc(px + 20, py + 45, 5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 1;
       }
 
       // Obstacles
-      gameSpeed.current = 5 + (score / 150);
+      gameSpeed.current = 6 + (score / 200);
       backgroundX.current -= gameSpeed.current;
 
-      if (time - lastObstacleTime.current > Math.max(700, 1800 - score * 1.5)) {
+      if (time - lastObstacleTime.current > Math.max(600, 1600 - score * 1.2)) {
         obstacles.current.push({
           x: canvas.width,
-          width: 35,
-          height: 45 + Math.random() * 40,
-          color: Math.random() > 0.5 ? '#ef4444' : '#f97316'
+          width: 30 + Math.random() * 20,
+          height: 40 + Math.random() * 50,
+          color: Math.random() > 0.5 ? '#f43f5e' : '#fbbf24',
+          type: Math.random() > 0.7 ? 'spike' : 'block'
         });
         lastObstacleTime.current = time;
       }
@@ -491,25 +623,36 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
 
         // Draw obstacle with glow
         ctx.fillStyle = o.color;
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 20;
         ctx.shadowColor = o.color;
-        ctx.beginPath();
-        ctx.roundRect(o.x, canvas.height - 40 - o.height, o.width, o.height, 4);
-        ctx.fill();
+        
+        if (o.type === 'spike') {
+          ctx.beginPath();
+          ctx.moveTo(o.x, canvas.height - 40);
+          ctx.lineTo(o.x + o.width/2, canvas.height - 40 - o.height);
+          ctx.lineTo(o.x + o.width, canvas.height - 40);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.roundRect(o.x, canvas.height - 40 - o.height, o.width, o.height, 6);
+          ctx.fill();
+        }
         ctx.shadowBlur = 0;
 
         // Collision
+        const tolerance = 10;
         if (
-          px < o.x + o.width &&
-          px + player.current.width > o.x &&
-          py + player.current.height > canvas.height - 40 - o.height
+          px + tolerance < o.x + o.width &&
+          px + drawWidth - tolerance > o.x &&
+          py + drawHeight - tolerance > canvas.height - 40 - o.height
         ) {
           setIsGameOver(true);
           setIsPlaying(false);
           onComplete(score);
         }
 
-        if (o.x < -50) {
+        if (o.x < -100) {
           obstacles.current.splice(i, 1);
           setScore(s => s + 10);
         }
@@ -540,7 +683,7 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
           ref={canvasRef}
           width={800}
           height={300}
-          className="w-full h-full cursor-pointer"
+          className="w-full h-full cursor-pointer touch-action-none"
         />
 
         {!isPlaying && !isGameOver && (
@@ -579,17 +722,19 @@ export function EndlessRunner({ onComplete, onExit }: { onComplete: (score: numb
   );
 }
 
-export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: number) => void; onExit: () => void }) {
+export function NeonDefender({ onComplete, onExit }: { onComplete: (score: number) => void; onExit: () => void }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [score, setScore] = useState(0);
+  const [wave, setWave] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
   
-  const player = useRef({ x: 400, y: 350, width: 40, height: 40 });
+  const player = useRef({ angle: 0, radius: 40, x: 400, y: 225 });
   const bullets = useRef<any[]>([]);
   const enemies = useRef<any[]>([]);
   const particles = useRef<any[]>([]);
+  const [shake, setShake] = useState(0);
   const lastSpawnTime = useRef(0);
   const lastShootTime = useRef(0);
 
@@ -597,21 +742,24 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
     setIsPlaying(true);
     setIsGameOver(false);
     setScore(0);
+    setWave(1);
     bullets.current = [];
     enemies.current = [];
     particles.current = [];
     lastSpawnTime.current = performance.now();
   };
 
-  const createExplosion = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 10; i++) {
+  const createExplosion = (x: number, y: number, color: string, count = 15) => {
+    for (let i = 0; i < count; i++) {
       particles.current.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 8,
-        vy: (Math.random() - 0.5) * 8,
+        vx: (Math.random() - 0.5) * 12,
+        vy: (Math.random() - 0.5) * 12,
         life: 1.0,
-        color
+        decay: Math.random() * 0.02 + 0.02,
+        color,
+        radius: Math.random() * 4 + 1
       });
     }
   };
@@ -623,21 +771,59 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (isPlaying && !isGameOver) {
-      // Draw player
-      ctx.font = '40px serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🚀', player.current.x, player.current.y);
+    if (shake > 0) {
+      ctx.save();
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+      setShake(s => Math.max(0, s - 0.8));
+    }
 
-      // Spawning enemies
-      if (time - lastSpawnTime.current > Math.max(500, 1500 - score / 10)) {
+    if (isPlaying && !isGameOver) {
+      // Draw Base
+      ctx.beginPath();
+      ctx.arc(player.current.x, player.current.y, 30, 0, Math.PI * 2);
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#3b82f6';
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      
+      // Core pulse
+      const pulse = Math.sin(time / 200) * 5 + 15;
+      ctx.beginPath();
+      ctx.arc(player.current.x, player.current.y, pulse, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
+      ctx.fill();
+
+      // Draw Player (Turret)
+      const turretX = player.current.x + Math.cos(player.current.angle) * player.current.radius;
+      const turretY = player.current.y + Math.sin(player.current.angle) * player.current.radius;
+      
+      ctx.save();
+      ctx.translate(turretX, turretY);
+      ctx.rotate(player.current.angle);
+      ctx.fillStyle = '#60a5fa';
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = '#60a5fa';
+      ctx.fillRect(-10, -5, 20, 10);
+      ctx.fillRect(5, -3, 15, 6);
+      ctx.restore();
+
+      // Wave management
+      setWave(Math.floor(score / 200) + 1);
+
+      // Spawning enemies from edges
+      const spawnDelay = Math.max(300, 1200 - (wave * 100));
+      if (time - lastSpawnTime.current > spawnDelay) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 500;
         enemies.current.push({
-          id: Date.now() + Math.random(),
-          x: Math.random() * (canvas.width - 60) + 30,
-          y: -50,
-          speed: 2 + Math.random() * 2 + (score / 1000),
-          type: ['👾', '🛸', '👻', '💀'][Math.floor(Math.random() * 4)],
-          hp: 1
+          x: player.current.x + Math.cos(angle) * dist,
+          y: player.current.y + Math.sin(angle) * dist,
+          speed: 1.5 + (wave * 0.2),
+          radius: 12 + Math.random() * 8,
+          color: ['#f43f5e', '#fbbf24', '#a855f7'][Math.floor(Math.random() * 3)],
+          hp: 1 + Math.floor(wave / 3)
         });
         lastSpawnTime.current = time;
       }
@@ -645,15 +831,20 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
       // Update bullets
       for (let i = bullets.current.length - 1; i >= 0; i--) {
         const b = bullets.current[i];
-        b.y -= 7;
+        b.x += b.vx;
+        b.y += b.vy;
         
         ctx.fillStyle = '#60a5fa';
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 15;
         ctx.shadowColor = '#60a5fa';
-        ctx.fillRect(b.x - 2, b.y, 4, 15);
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowBlur = 0;
 
-        if (b.y < -20) bullets.current.splice(i, 1);
+        if (Math.abs(b.x - player.current.x) > 600 || Math.abs(b.y - player.current.y) > 600) {
+          bullets.current.splice(i, 1);
+        }
       }
 
       // Update particles
@@ -661,7 +852,7 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
         const p = particles.current[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.life -= 0.02;
+        p.life -= p.decay;
         
         if (p.life <= 0) {
           particles.current.splice(i, 1);
@@ -671,7 +862,7 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.life;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -679,38 +870,58 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
       // Update enemies
       for (let i = enemies.current.length - 1; i >= 0; i--) {
         const e = enemies.current[i];
-        e.y += e.speed;
+        const angleToBase = Math.atan2(player.current.y - e.y, player.current.x - e.x);
+        e.x += Math.cos(angleToBase) * e.speed;
+        e.y += Math.sin(angleToBase) * e.speed;
         
-        // Sinusoidal movement
-        e.x += Math.sin(e.y / 30) * 2;
+        // Enemy visual
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = e.color;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Inner core
+        ctx.fillStyle = e.color;
+        ctx.globalAlpha = 0.3;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
 
-        ctx.font = '35px serif';
-        ctx.fillText(e.type, e.x, e.y);
-
-        // Collision with player
-        const distToPlayer = Math.sqrt((e.x - player.current.x) ** 2 + (e.y - player.current.y) ** 2);
-        if (distToPlayer < 35 || e.y > canvas.height) {
+        // Collision with base
+        const distToBase = Math.sqrt((e.x - player.current.x) ** 2 + (e.y - player.current.y) ** 2);
+        if (distToBase < 30 + e.radius) {
           setIsGameOver(true);
           setIsPlaying(false);
           onComplete(score);
-          createExplosion(player.current.x, player.current.y, '#ef4444');
+          setShake(30);
+          createExplosion(player.current.x, player.current.y, '#ef4444', 50);
         }
 
         // Collision with bullets
         for (let j = bullets.current.length - 1; j >= 0; j--) {
           const b = bullets.current[j];
           const dist = Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2);
-          if (dist < 25) {
-            createExplosion(e.x, e.y, '#60a5fa');
-            enemies.current.splice(i, 1);
+          if (dist < e.radius + 5) {
+            e.hp--;
             bullets.current.splice(j, 1);
-            setScore(s => s + 10);
+            if (e.hp <= 0) {
+              createExplosion(e.x, e.y, e.color);
+              enemies.current.splice(i, 1);
+              setScore(s => s + 20);
+              setShake(3);
+            } else {
+              setShake(1);
+            }
             break;
           }
         }
       }
     }
 
+    if (shake > 0) ctx.restore();
     requestRef.current = requestAnimationFrame(update);
   };
 
@@ -719,22 +930,34 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, isGameOver, score]);
+  }, [isPlaying, isGameOver, score, shake]);
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
     if (!isPlaying || isGameOver) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    player.current.x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
+    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    
+    player.current.angle = Math.atan2(y - player.current.y, x - player.current.x);
   };
 
   const shoot = () => {
     if (!isPlaying || isGameOver) return;
     const now = performance.now();
-    if (now - lastShootTime.current > 200) {
-      bullets.current.push({ x: player.current.x, y: player.current.y - 20 });
+    if (now - lastShootTime.current > 150) {
+      const turretX = player.current.x + Math.cos(player.current.angle) * player.current.radius;
+      const turretY = player.current.y + Math.sin(player.current.angle) * player.current.radius;
+      
+      bullets.current.push({ 
+        x: turretX, 
+        y: turretY, 
+        vx: Math.cos(player.current.angle) * 10,
+        vy: Math.sin(player.current.angle) * 10
+      });
       lastShootTime.current = now;
+      setShake(2);
     }
   };
 
@@ -744,27 +967,33 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
         <Button variant="ghost" size="sm" onClick={onExit} className="text-white/40 hover:text-white">
           ← Exit Game
         </Button>
-        <div className="text-xs font-mono text-white/40 uppercase tracking-widest">Base Defense</div>
+        <div className="flex items-center gap-4">
+          <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest bg-blue-500/10 px-2 py-1 rounded">Wave {wave}</div>
+          <div className="text-xs font-mono text-white/40 uppercase tracking-widest">Neon Defender</div>
+        </div>
       </div>
 
       <div 
-        className="relative h-[450px] w-full bg-slate-950 rounded-2xl overflow-hidden border border-white/10"
+        className="relative h-[450px] w-full bg-slate-950 rounded-2xl overflow-hidden border border-white/10 shadow-2xl touch-none overscroll-none"
         onMouseMove={handleMouseMove}
+        onTouchMove={handleMouseMove}
         onClick={shoot}
       >
         <canvas
           ref={canvasRef}
           width={800}
           height={450}
-          className="w-full h-full cursor-none"
+          className="w-full h-full cursor-crosshair"
         />
 
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
-            <Rocket className="w-16 h-16 text-blue-400 mb-4" />
-            <h3 className="text-3xl font-black text-white mb-2 uppercase italic">Base Invaders</h3>
-            <p className="text-white/60 text-sm mb-8">Move mouse to move, Click to shoot</p>
-            <Button size="lg" onClick={startGame}>START MISSION</Button>
+            <div className="w-20 h-20 rounded-full border-4 border-blue-500 flex items-center justify-center mb-6 animate-pulse">
+              <Rocket className="w-10 h-10 text-blue-400" />
+            </div>
+            <h3 className="text-4xl font-black text-white mb-2 uppercase italic tracking-tighter">Neon Defender</h3>
+            <p className="text-white/60 text-sm mb-8">Defend the core from incoming waves!</p>
+            <Button size="lg" onClick={startGame} className="px-12 py-6 text-xl font-bold bg-blue-600 hover:bg-blue-500">START DEFENSE</Button>
           </div>
         )}
 
@@ -772,12 +1001,12 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-30 p-6 text-center"
+            className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-30 p-6 text-center backdrop-blur-md"
           >
-            <h3 className="text-3xl font-black text-white mb-2">MISSION FAILED</h3>
-            <div className="text-5xl font-black text-blue-400 mb-8">{score}</div>
+            <h3 className="text-4xl font-black text-red-500 mb-2">CORE DESTROYED</h3>
+            <div className="text-6xl font-black text-white mb-8">{score}</div>
             <div className="flex gap-4">
-              <Button size="lg" onClick={startGame}>Retry</Button>
+              <Button size="lg" onClick={startGame}>Rebuild</Button>
               <Button variant="outline" size="lg" onClick={onExit}>Exit</Button>
             </div>
           </motion.div>
@@ -785,11 +1014,11 @@ export function BaseInvaders({ onComplete, onExit }: { onComplete: (score: numbe
 
         {isPlaying && !isGameOver && (
           <div className="absolute top-6 left-6 pointer-events-none">
-            <div className="text-4xl font-black text-white tracking-tighter">{score}</div>
+            <div className="text-4xl font-black text-white tracking-tighter drop-shadow-lg">{score}</div>
           </div>
         )}
       </div>
-      <Leaderboard gameId="BaseInvaders" />
+      <Leaderboard gameId="NeonDefender" />
     </div>
   );
 }

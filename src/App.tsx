@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAccount, useConnect, useDisconnect, useSendTransaction } from 'wagmi';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
-import { SlicingGame, EndlessRunner, BaseInvaders } from './components/games/GameHub';
+import { SlicingGame, EndlessRunner, NeonDefender } from './components/games/GameHub';
 import { SwapSection } from './components/swap/SwapSection';
 import { OnchainAI } from './components/ai/OnchainAI';
 import { ContractDeployer } from './components/deployer/ContractDeployer';
@@ -475,9 +475,9 @@ function MainApp() {
                     </GlassCard>
                   </div>
                   <GlassCard className="p-6 max-w-2xl mx-auto">
-                    <h3 className="text-xl font-bold mb-4">Base Invaders</h3>
-                    <BaseInvaders 
-                      onComplete={(s) => handleGameComplete('BaseInvaders', s)} 
+                    <h3 className="text-xl font-bold mb-4">Neon Defender</h3>
+                    <NeonDefender 
+                      onComplete={(s) => handleGameComplete('NeonDefender', s)} 
                       onExit={() => setActiveTab('dashboard')}
                     />
                   </GlassCard>
