@@ -78,11 +78,14 @@ export function BaseWall() {
     setIsPosting(true);
     try {
       // 1. Onchain Logging - MANDATORY for wall posts now
-      const messageData = stringToHex(`MSG:${newMessage.trim().substring(0, 20)}`);
+      // Send to self to ensure it works for both EOAs and Smart Wallets
+      // while still recording the presence onchain with the builder code.
       const txHash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${messageData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: BASE_BUILDER_CODE,
+        // Manual gas limit to prevent estimation failures on Smart Wallets
+        gas: 50000n,
       });
 
       if (!txHash) throw new Error("Transaction failed or was rejected");

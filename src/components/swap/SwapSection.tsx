@@ -45,8 +45,23 @@ export function SwapSection() {
       });
       
       setStats(prev => {
+        const usdValue = parseFloat(route.toAmountUSD || '0');
+        const rawAmount = parseFloat(route.toAmount);
+        const decimals = route.toToken.decimals || 18;
+        const normalizedAmount = rawAmount / Math.pow(10, decimals);
+        
+        // LiFi sometimes returns raw amount as USD (common bug with some providers)
+        // If USD value is more than 1000x the normalized amount, it's likely raw
+        let actualUsd = usdValue;
+        if (usdValue > 0 && normalizedAmount > 0 && (usdValue / normalizedAmount > 1000)) {
+          actualUsd = normalizedAmount;
+        } else if (usdValue === 0 && normalizedAmount > 0) {
+          // Fallback if USD value is missing
+          actualUsd = normalizedAmount;
+        }
+
         const newStats = {
-          totalVolume: (parseFloat(prev.totalVolume) + parseFloat(route.toAmountUSD || '0')).toString(),
+          totalVolume: (parseFloat(prev.totalVolume) + actualUsd).toString(),
           totalGas: (parseFloat(prev.totalGas) + parseFloat(newSwap.gasUsed)).toString(),
           swapCount: prev.swapCount + 1
         };
@@ -137,12 +152,27 @@ export function SwapSection() {
                 <h2 className="text-xl font-bold text-white">Swap Assets</h2>
               </div>
               <div className="flex gap-2">
+                <Button 
+                  variant="ghost" 
+                  className="p-2 hover:bg-red-500/10 text-white/20 hover:text-red-400 transition-colors"
+                  onClick={() => {
+                    if (confirm("Reset your swap stats and history?")) {
+                      localStorage.removeItem(`swap_history_${address}`);
+                      localStorage.removeItem(`swap_stats_${address}`);
+                      setHistory([]);
+                      setStats({ totalVolume: '0', totalGas: '0', swapCount: 0 });
+                    }
+                  }}
+                  title="Reset Stats"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                </Button>
                 <Button variant="ghost" className="p-2 hover:bg-white/5"><Settings className="w-5 h-5" /></Button>
                 <Button variant="ghost" className="p-2 hover:bg-white/5"><Info className="w-5 h-5" /></Button>
               </div>
             </div>
 
-            <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40 p-1 shadow-2xl">
+            <div className="rounded-3xl border border-white/10 bg-black/40 p-2 shadow-2xl">
               <LiFiWidget
                 integrator="BaseNexus"
                 config={{
@@ -156,8 +186,8 @@ export function SwapSection() {
                       background: { paper: '#0f172a', default: 'transparent' }
                     },
                     shape: {
-                      borderRadius: 16,
-                      borderRadiusSecondary: 12
+                      borderRadius: 24,
+                      borderRadiusSecondary: 16
                     }
                   }
                 }}

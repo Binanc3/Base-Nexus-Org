@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2, Info } from 'lucide-react';
 import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { parseEther, formatEther, encodeDeployData } from 'viem';
 import { base } from 'wagmi/chains';
 import { supabase } from '../../supabase';
+import { BASE_BUILDER_CODE } from '../../lib/wagmi';
 
 import { cn } from '@/src/lib/utils';
 
@@ -105,28 +106,38 @@ export function ContractDeployer() {
     setDeployStep('Requesting signature...');
     try {
       const client = walletClient as any;
-      if (!client?.account) return;
+
+      const abi = [
+        {
+          inputs: [
+            { name: 'name', type: 'string' },
+            { name: 'symbol', type: 'string' },
+            { name: contractType === 'ERC20' ? 'initialSupply' : 'baseUri', type: contractType === 'ERC20' ? 'uint256' : 'string' }
+          ],
+          stateMutability: 'nonpayable',
+          type: 'constructor'
+        }
+      ];
 
       const args = contractType === 'ERC20' 
         ? [formData.name, formData.symbol, parseEther(formData.supply)]
         : [formData.name, formData.symbol, formData.baseUri];
 
-      const hash = await client.deployContract({
-        abi: [
-          {
-            inputs: [
-              { name: 'name', type: 'string' },
-              { name: 'symbol', type: 'string' },
-              { name: contractType === 'ERC20' ? 'initialSupply' : 'baseUri', type: contractType === 'ERC20' ? 'uint256' : 'string' }
-            ],
-            stateMutability: 'nonpayable',
-            type: 'constructor'
-          }
-        ], 
-        bytecode: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`, 
+      const deployData = encodeDeployData({
+        abi,
+        bytecode: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`,
         args,
-        account: client.account.address,
+      });
+
+      // Append builder code as per ERC-8021
+      const finalData = `${deployData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`;
+
+      const hash = await client.sendTransaction({
+        to: null,
+        data: finalData,
+        account: userAddress,
         chain: base,
+        gas: 2000000n, // Higher gas limit for deployment
       });
 
       setDeployStep('Waiting for confirmation...');

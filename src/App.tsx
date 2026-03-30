@@ -127,12 +127,18 @@ function MainApp() {
 
     // 2. Log score onchain ONLY if connected
     if (address && isConnected) {
-      const scoreData = stringToHex(`SCORE:${game}:${score}`);
-      sendTransaction({
-        to: address,
-        value: 0n,
-        data: `${scoreData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
-      });
+      // Send to self to ensure it works for both EOAs and Smart Wallets
+      // while still recording the presence onchain with the builder code.
+      try {
+        sendTransaction({
+          to: address,
+          value: 0n,
+          data: BASE_BUILDER_CODE,
+          gas: 50000n,
+        });
+      } catch (err) {
+        console.error("Onchain score logging failed:", err);
+      }
     }
   };
 
@@ -153,6 +159,38 @@ function MainApp() {
     };
     trackUser();
   }, [address, isConnected]);
+
+  const [recentActions, setRecentActions] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchRecentActions = async () => {
+      try {
+        const [
+          { data: checkins },
+          { data: deployments },
+          { data: scores }
+        ] = await Promise.all([
+          supabase.from('checkins').select('*').order('created_at', { ascending: false }).limit(5),
+          supabase.from('deployments').select('*').order('created_at', { ascending: false }).limit(5),
+          supabase.from('leaderboards').select('*').order('created_at', { ascending: false }).limit(5)
+        ]);
+
+        const all = [
+          ...(checkins?.map(c => ({ ...c, label: `Checked in: ${c.checkin_type}` })) || []),
+          ...(deployments?.map(d => ({ ...d, label: `Deployed ${d.contract_type}` })) || []),
+          ...(scores?.map(s => ({ ...s, label: `Scored ${s.score} in ${s.game_id}` })) || [])
+        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5);
+
+        setRecentActions(all);
+      } catch (err) {
+        console.error("Error fetching recent actions:", err);
+      }
+    };
+    fetchRecentActions();
+    const interval = setInterval(fetchRecentActions, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   const [hasPeeked, setHasPeeked] = useState(false);
   const [globalStats, setGlobalStats] = useState({
@@ -198,9 +236,9 @@ function MainApp() {
           ...(messageUsers?.map(u => u.user_address) || []),
           ...(deployUsers?.map(u => u.user_address) || []),
           ...(checkinUsers?.map(u => u.user_address) || [])
-        ];
-
-        const uniqueUsers = new Set(allAddresses.filter(Boolean)).size;
+        ].filter(addr => addr && addr !== 'Guest');
+        
+        const uniqueUsers = new Set(allAddresses).size;
 
         const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true });
         const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
@@ -218,6 +256,8 @@ function MainApp() {
       }
     };
     fetchGlobalStats();
+    const interval = setInterval(fetchGlobalStats, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
   }, []);
 
   const tabs = [
@@ -483,15 +523,21 @@ function MainApp() {
                       <div className="mt-8 pt-6 border-t border-white/5">
                         <h4 className="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">Recent Activity Feed</h4>
                         <div className="space-y-3">
-                          {[1, 2, 3].map((i) => (
-                            <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-white/5 last:border-0">
-                              <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-blue-500/40" />
-                                <span className="text-white/80">Onchain action detected</span>
+                          {recentActions.length === 0 ? (
+                            <div className="text-center py-4 text-white/20 text-[10px] italic">No recent activity detected</div>
+                          ) : (
+                            recentActions.map((action, i) => (
+                              <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-white/5 last:border-0">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-2 h-2 rounded-full bg-blue-500/40" />
+                                  <span className="text-white/80">{action.label}</span>
+                                </div>
+                                <span className="text-white/20 font-mono">
+                                  {new Date(action.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
                               </div>
-                              <span className="text-white/20 font-mono">Just now</span>
-                            </div>
-                          ))}
+                            ))
+                          )}
                         </div>
                       </div>
                     </GlassCard>

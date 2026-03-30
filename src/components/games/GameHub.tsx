@@ -325,8 +325,12 @@ export function SlicingGame({ onComplete, onExit }: { onComplete: (score: number
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : (e as React.MouseEvent).clientX - rect.left;
-    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : (e as React.MouseEvent).clientY - rect.top;
+    const clientX = ('touches' in e) ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = ('touches' in e) ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    // Scale coordinates to match canvas internal resolution (800x450)
+    const x = (clientX - rect.left) * (canvas.width / rect.width);
+    const y = (clientY - rect.top) * (canvas.height / rect.height);
 
     trailRef.current.push({ x, y, time: performance.now() });
 

@@ -13,6 +13,7 @@ export function CheckIn() {
   const [totalCheckins, setTotalCheckins] = useState(0);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!address) return;
@@ -28,17 +29,45 @@ export function CheckIn() {
         setTotalCheckins(count || 0);
         
         if (data && data.length > 0) {
-          // Calculate streak (simplified: consecutive days)
-          let currentStreak = 1;
-          const today = new Date().toDateString();
-          const lastCheckinDate = new Date(data[0].created_at).toDateString();
+          // Calculate real streak
+          let currentStreak = 0;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
           
-          if (lastCheckinDate === today) {
-            setLastAction(data[0].checkin_type);
+          const uniqueDays = new Set();
+          data.forEach(checkin => {
+            const d = new Date(checkin.created_at);
+            d.setHours(0, 0, 0, 0);
+            uniqueDays.add(d.getTime());
+          });
+
+          const sortedDays = Array.from(uniqueDays).sort((a: any, b: any) => b - a) as number[];
+          
+          if (sortedDays.length > 0) {
+            const lastCheckinDate = new Date(sortedDays[0]);
+            const diffDays = Math.floor((today.getTime() - lastCheckinDate.getTime()) / (1000 * 60 * 60 * 24));
+            
+            if (diffDays <= 1) {
+              currentStreak = 1;
+              let checkDate = new Date(lastCheckinDate);
+              for (let i = 1; i < sortedDays.length; i++) {
+                checkDate.setDate(checkDate.getDate() - 1);
+                if (sortedDays[i] === checkDate.getTime()) {
+                  currentStreak++;
+                } else {
+                  break;
+                }
+              }
+            }
           }
 
-          // Streak calculation logic could be more complex, but let's keep it simple for now
-          setStreak(data.length); // Just using total for now as a placeholder for streak
+          setStreak(currentStreak);
+          
+          // Check if already checked in today
+          const lastCheckin = new Date(data[0].created_at).toDateString();
+          if (lastCheckin === new Date().toDateString()) {
+            setLastAction(data[0].checkin_type);
+          }
         }
       } catch (err) {
         console.error("Error fetching checkin stats:", err);
@@ -52,13 +81,17 @@ export function CheckIn() {
     if (!address || isPending) return;
 
     setIsPending(true);
+    setError(null);
     try {
       // 1. Send onchain transaction
-      const checkInData = stringToHex(type);
+      // Send to self to ensure it works for both EOAs and Smart Wallets
+      // while still recording the presence onchain with the builder code.
       const hash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${checkInData}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: BASE_BUILDER_CODE,
+        // Manual gas limit to prevent estimation failures on Smart Wallets
+        gas: 50000n,
       });
 
       // 2. Save to Supabase
@@ -77,6 +110,7 @@ export function CheckIn() {
       setStreak(prev => prev + 1);
     } catch (err) {
       console.error("Check-in failed:", err);
+      setError(err instanceof Error ? err.message : "Check-in failed. Please ensure you have enough ETH for gas.");
     } finally {
       setIsPending(false);
     }
@@ -90,6 +124,11 @@ export function CheckIn() {
       <h2 className="text-3xl font-bold text-white mb-2">Daily Check-in</h2>
       <p className="text-white/60 mb-8">Record your daily presence on the Base network and build your onchain streak.</p>
 
+      {error && (
+        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm text-center italic">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 mb-8">
         <Button 
           variant={lastAction === 'GM' ? 'primary' : 'outline'}
