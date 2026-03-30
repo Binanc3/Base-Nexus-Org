@@ -11,6 +11,8 @@ import { ProfileSection } from './components/profile/ProfileSection';
 import { cn } from '@/src/lib/utils';
 import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from './lib/wagmi';
+import { useEffect } from "react";
+import { sdk } from "@farcaster/miniapp-sdk";
 import { 
   LayoutDashboard, 
   Gamepad2, 
@@ -36,6 +38,19 @@ import { sdk } from '@farcaster/miniapp-sdk';   // or from @base/minikit if usin
 // Call this once your UI is fully rendered
 useEffect(() => {
   sdk.actions.ready();
+}, []);
+
+useEffect(() => {
+  const initializeMiniApp = async () => {
+    try {
+      await sdk.actions.ready();
+      console.log("✅ Mini app ready signal sent to Farcaster/Base");
+    } catch (error) {
+      console.error("Failed to send ready signal:", error);
+    }
+  };
+
+  initializeMiniApp();
 }, []);
 
 import { supabase } from './supabase';
