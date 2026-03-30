@@ -32,9 +32,9 @@ function App() {
     markReady();
   }, []);
 
-  // ... your existing return (UI) code here
+  //your existing return (UI) code here
   return (
-    // your app content
+    //your app content
   );
 }
 
