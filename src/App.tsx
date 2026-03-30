@@ -135,8 +135,7 @@ function MainApp() {
         const hash = await sendTransactionAsync({
           to: '0x0000000000000000000000000000000000008021',
           value: 0n,
-          data: BASE_BUILDER_CODE,
-          gas: 50000n,
+          data: `${stringToHex(`SCORE:${score}`).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
         });
 
         if (publicClient) {

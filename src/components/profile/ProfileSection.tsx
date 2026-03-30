@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare, Globe, Calendar } from 'lucide-react';
+import { User, Shield, Trophy, Repeat, Code2, ExternalLink, Copy, CheckCircle2, Zap, TrendingUp, Activity, Star, MessageSquare, Globe, Calendar, BarChart3, Award } from 'lucide-react';
 import { useAccount } from 'wagmi';
 import { motion } from 'motion/react';
 import { supabase } from '../../supabase';
 import { cn } from '@/src/lib/utils';
 import sdk from '@farcaster/miniapp-sdk';
+import { AchievementMint } from '../achievements/AchievementMint';
 
 interface UserStats {
   totalSwaps: number;
@@ -18,6 +19,7 @@ interface UserStats {
 
 export function ProfileSection() {
   const { address } = useAccount();
+  const [activeTab, setActiveTab] = useState<'stats' | 'achievements'>('stats');
   const [context, setContext] = useState<any>();
   const [stats, setStats] = useState<UserStats>({
     totalSwaps: 0,
@@ -174,145 +176,178 @@ export function ProfileSection() {
         </GlassCard>
       </motion.div>
 
-      {/* Stats Grid */}
-      <motion.div 
-        variants={container}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-1 md:grid-cols-3 gap-6"
-      >
-        <motion.div variants={item}>
-          <GlassCard className="p-6 h-full bg-blue-600/5 border-blue-500/20">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-blue-500/20 rounded-lg">
-                <Repeat className="w-5 h-5 text-blue-400" />
-              </div>
-              <h3 className="font-bold text-white">Swap Activity</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Total Swaps</span>
-                <span className="text-lg font-bold text-white">{stats.totalSwaps}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Volume</span>
-                <span className="text-lg font-bold text-blue-400">${Number(stats.totalVolume).toLocaleString()}</span>
-              </div>
-              <div className="pt-4 border-t border-white/5">
-                <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">
-                  <TrendingUp className="w-3 h-3" />
-                  Active Trader
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
+      {/* Tab Switcher */}
+      <div className="flex gap-4 mb-8">
+        <Button 
+          variant={activeTab === 'stats' ? 'primary' : 'outline'}
+          className="flex-1 h-12 gap-2"
+          onClick={() => setActiveTab('stats')}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Statistics
+        </Button>
+        <Button 
+          variant={activeTab === 'achievements' ? 'primary' : 'outline'}
+          className="flex-1 h-12 gap-2"
+          onClick={() => setActiveTab('achievements')}
+        >
+          <Trophy className="w-4 h-4" />
+          Achievements
+        </Button>
+      </div>
 
-        <motion.div variants={item}>
-          <GlassCard className="p-6 h-full bg-purple-600/5 border-purple-500/20">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
-                <Code2 className="w-5 h-5 text-purple-400" />
-              </div>
-              <h3 className="font-bold text-white">Developer Stats</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Contracts Deployed</span>
-                <span className="text-lg font-bold text-white">{stats.contractsDeployed}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Factory Usage</span>
-                <span className="text-lg font-bold text-purple-400">{stats.contractsDeployed > 0 ? 'Active' : 'Idle'}</span>
-              </div>
-              <div className="pt-4 border-t border-white/5">
-                <div className="flex items-center gap-2 text-[10px] text-purple-400 font-bold uppercase tracking-wider">
-                  <Zap className="w-3 h-3" />
-                  Base Builder
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-
-        <motion.div variants={item}>
-          <GlassCard className="p-6 h-full bg-yellow-600/5 border-yellow-500/20">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-yellow-500/20 rounded-lg">
-                <Trophy className="w-5 h-5 text-yellow-400" />
-              </div>
-              <h3 className="font-bold text-white">Gaming Profile</h3>
-            </div>
-            <div className="space-y-3">
-              {stats.highScores.length === 0 ? (
-                <p className="text-xs text-white/30 italic py-4">No scores logged yet. Head to the Game Hub!</p>
-              ) : (
-                stats.highScores.map((hs, i) => (
-                  <div key={i} className="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
-                    <span className="text-xs text-white/60">{hs.game_id}</span>
-                    <span className="text-sm font-bold text-yellow-400">{hs.score}</span>
+      {activeTab === 'stats' ? (
+        <>
+          {/* Stats Grid */}
+          <motion.div 
+            variants={container}
+            initial="hidden"
+            animate="show"
+            className="grid grid-cols-1 md:grid-cols-3 gap-6"
+          >
+            <motion.div variants={item}>
+              <GlassCard className="p-6 h-full bg-blue-600/5 border-blue-500/20">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Repeat className="w-5 h-5 text-blue-400" />
                   </div>
-                ))
-              )}
-              <div className="pt-4 border-t border-white/5">
-                <div className="flex items-center gap-2 text-[10px] text-yellow-400 font-bold uppercase tracking-wider">
-                  <Star className="w-3 h-3" />
-                  Arcade Master
+                  <h3 className="font-bold text-white">Swap Activity</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Total Swaps</span>
+                    <span className="text-lg font-bold text-white">{stats.totalSwaps}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Volume</span>
+                    <span className="text-lg font-bold text-blue-400">${Number(stats.totalVolume).toLocaleString()}</span>
+                  </div>
+                  <div className="pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">
+                      <TrendingUp className="w-3 h-3" />
+                      Active Trader
+                    </div>
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.div>
+
+            <motion.div variants={item}>
+              <GlassCard className="p-6 h-full bg-purple-600/5 border-purple-500/20">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-purple-500/20 rounded-lg">
+                    <Code2 className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <h3 className="font-bold text-white">Developer Stats</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Contracts Deployed</span>
+                    <span className="text-lg font-bold text-white">{stats.contractsDeployed}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Factory Usage</span>
+                    <span className="text-lg font-bold text-purple-400">{stats.contractsDeployed > 0 ? 'Active' : 'Idle'}</span>
+                  </div>
+                  <div className="pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-2 text-[10px] text-purple-400 font-bold uppercase tracking-wider">
+                      <Zap className="w-3 h-3" />
+                      Base Builder
+                    </div>
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.div>
+
+            <motion.div variants={item}>
+              <GlassCard className="p-6 h-full bg-yellow-600/5 border-yellow-500/20">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-yellow-500/20 rounded-lg">
+                    <Trophy className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <h3 className="font-bold text-white">Gaming Profile</h3>
+                </div>
+                <div className="space-y-3">
+                  {stats.highScores.length === 0 ? (
+                    <p className="text-xs text-white/30 italic py-4">No scores logged yet. Head to the Game Hub!</p>
+                  ) : (
+                    stats.highScores.map((hs, i) => (
+                      <div key={i} className="flex justify-between items-center p-2 bg-white/5 rounded-lg border border-white/5">
+                        <span className="text-xs text-white/60">{hs.game_id}</span>
+                        <span className="text-sm font-bold text-yellow-400">{hs.score}</span>
+                      </div>
+                    ))
+                  )}
+                  <div className="pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-2 text-[10px] text-yellow-400 font-bold uppercase tracking-wider">
+                      <Star className="w-3 h-3" />
+                      Arcade Master
+                    </div>
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.div>
+
+            <motion.div variants={item}>
+              <GlassCard className="p-6 h-full bg-green-600/5 border-green-500/20">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-green-500/20 rounded-lg">
+                    <MessageSquare className="w-5 h-5 text-green-400" />
+                  </div>
+                  <h3 className="font-bold text-white">Social Presence</h3>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Wall Posts</span>
+                    <span className="text-lg font-bold text-white">{stats.totalMessages}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white/40">Check-ins</span>
+                    <span className="text-lg font-bold text-green-400">{stats.totalCheckins}</span>
+                  </div>
+                  <div className="pt-4 border-t border-white/5">
+                    <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">
+                      <Globe className="w-3 h-3" />
+                      Onchain Voice
+                    </div>
+                  </div>
+                </div>
+              </GlassCard>
+            </motion.div>
+          </motion.div>
+
+          {/* Activity Feed Placeholder */}
+          <motion.div variants={item} initial="hidden" animate="show">
+            <GlassCard className="p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Activity className="w-5 h-5 text-green-400" />
+                <h3 className="font-bold text-white">Recent Activity</h3>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-white font-medium">Profile Synced</p>
+                    <p className="text-xs text-white/40">Your onchain activity has been updated successfully.</p>
+                  </div>
+                  <span className="text-[10px] text-white/20">Just now</span>
                 </div>
               </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-
-        <motion.div variants={item}>
-          <GlassCard className="p-6 h-full bg-green-600/5 border-green-500/20">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-green-500/20 rounded-lg">
-                <MessageSquare className="w-5 h-5 text-green-400" />
-              </div>
-              <h3 className="font-bold text-white">Social Presence</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Wall Posts</span>
-                <span className="text-lg font-bold text-white">{stats.totalMessages}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-white/40">Check-ins</span>
-                <span className="text-lg font-bold text-green-400">{stats.totalCheckins}</span>
-              </div>
-              <div className="pt-4 border-t border-white/5">
-                <div className="flex items-center gap-2 text-[10px] text-green-400 font-bold uppercase tracking-wider">
-                  <Globe className="w-3 h-3" />
-                  Onchain Voice
-                </div>
-              </div>
-            </div>
-          </GlassCard>
-        </motion.div>
-      </motion.div>
-
-      {/* Activity Feed Placeholder */}
-      <motion.div variants={item} initial="hidden" animate="show">
-        <GlassCard className="p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Activity className="w-5 h-5 text-green-400" />
-            <h3 className="font-bold text-white">Recent Activity</h3>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
-              <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5 text-green-400" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm text-white font-medium">Profile Synced</p>
-                <p className="text-xs text-white/40">Your onchain activity has been updated successfully.</p>
-              </div>
-              <span className="text-[10px] text-white/20">Just now</span>
-            </div>
-          </div>
-        </GlassCard>
-      </motion.div>
+            </GlassCard>
+          </motion.div>
+        </>
+      ) : (
+        <AchievementMint 
+          stats={{
+            highScore: stats.highScores.length > 0 ? Math.max(...stats.highScores.map(s => s.score)) : 0,
+            deployments: stats.contractsDeployed,
+            checkins: stats.totalCheckins,
+            volume: Number(stats.totalVolume)
+          }} 
+        />
+      )}
     </div>
   );
 }
