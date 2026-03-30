@@ -13,6 +13,32 @@ import { stringToHex } from 'viem';
 import { BASE_BUILDER_CODE } from './lib/wagmi';
 import { useEffect } from "react";
 import { sdk } from "@farcaster/miniapp-sdk";
+
+function App() {
+  // ← THIS LOG SHOULD ALWAYS APPEAR if the app is running
+  console.log("🚀 App component has mounted!");
+
+  useEffect(() => {
+    const markReady = async () => {
+      try {
+        console.log("📡 Sending ready signal to Farcaster...");
+        await sdk.actions.ready();
+        console.log("✅ Mini app is now READY (splash screen hidden)");
+      } catch (err) {
+        console.error("❌ Ready signal failed:", err);
+      }
+    };
+
+    markReady();
+  }, []);
+
+  // ... your existing return (UI) code here
+  return (
+    // your app content
+  );
+}
+
+export default App;
 import { 
   LayoutDashboard, 
   Gamepad2, 
