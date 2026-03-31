@@ -1,33 +1,35 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2, Info } from 'lucide-react';
+import { Code2, Rocket, ShieldCheck, AlertTriangle, Loader2, CheckCircle, Fuel, History, ExternalLink, Copy, Trash2, Zap, Share2, Info, FileCode, Settings2, Plus } from 'lucide-react';
 import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
-import { parseEther, formatEther, encodeDeployData } from 'viem';
+import { parseEther, formatEther, encodeDeployData, hexToBytes, bytesToHex } from 'viem';
 import { base } from 'wagmi/chains';
 import { supabase } from '../../supabase';
 import { BASE_BUILDER_CODE, appendBuilderCode } from '../../lib/wagmi';
 import { toast } from 'sonner';
+import { ERC20_ABI, ERC721_ABI, ERC20_BYTECODE, ERC721_BYTECODE } from '../../lib/contracts';
 
 import { cn } from '@/src/lib/utils';
-
-// Standard ERC20 Bytecode (OpenZeppelin based)
-const ERC20_BYTECODE = '0x608060405234801561001057600080fd5b506101fe806100206000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063a9059cbb14602d575b600080fd5b60336047565b005b600080546001600160a01b031690509056fea2646970667358221220';
-
-// Standard ERC721 Bytecode (OpenZeppelin based)
-const ERC721_BYTECODE = '0x608060405234801561001057600080fd5b506102fe806100206000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c8063a9059cbb14602d575b600080fd5b60336047565b005b600080546001600160a01b031690509056fea2646970667358221220';
 
 interface DeployedContract {
   address: string;
   name: string;
   symbol: string;
-  type: 'ERC20' | 'ERC721';
+  type: 'ERC20' | 'ERC721' | 'Custom';
   timestamp: number;
 }
 
 export function ContractDeployer() {
   const { address: userAddress } = useAccount();
-  const [contractType, setContractType] = useState<'ERC20' | 'ERC721'>('ERC20');
-  const [formData, setFormData] = useState({ name: '', symbol: '', supply: '', baseUri: '' });
+  const [contractType, setContractType] = useState<'ERC20' | 'ERC721' | 'Custom'>('ERC20');
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    symbol: '', 
+    supply: '', 
+    baseUri: '',
+    customBytecode: '',
+    customAbi: ''
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployStep, setDeployStep] = useState<string>('');
@@ -54,32 +56,41 @@ export function ContractDeployer() {
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.name) newErrors.name = 'Name is required';
-    if (!formData.symbol) newErrors.symbol = 'Symbol is required';
-    if (contractType === 'ERC20' && !formData.supply) newErrors.supply = 'Initial supply is required';
-    if (contractType === 'ERC721' && !formData.baseUri) newErrors.baseUri = 'Base URI is required';
+    if (contractType !== 'Custom') {
+      if (!formData.name) newErrors.name = 'Name is required';
+      if (!formData.symbol) newErrors.symbol = 'Symbol is required';
+      if (contractType === 'ERC20' && !formData.supply) newErrors.supply = 'Initial supply is required';
+      if (contractType === 'ERC721' && !formData.baseUri) newErrors.baseUri = 'Base URI is required';
+    } else {
+      if (!formData.customBytecode) newErrors.customBytecode = 'Bytecode is required';
+      if (!formData.customBytecode.startsWith('0x')) newErrors.customBytecode = 'Bytecode must start with 0x';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   useEffect(() => {
     const estimateGas = async () => {
-      if (!publicClient || !formData.name || !formData.symbol || !(walletClient as any)?.account) {
+      if (!publicClient || !(walletClient as any)?.account) {
         setEstimatedGas(null);
         return;
       }
-      if (contractType === 'ERC20' && !formData.supply) {
-        setEstimatedGas(null);
-        return;
-      }
+
+      if (contractType === 'Custom' && !formData.customBytecode) return;
+      if (contractType !== 'Custom' && (!formData.name || !formData.symbol)) return;
 
       setIsEstimating(true);
       try {
         const client = walletClient as any;
         if (!client?.account) return;
         
-        // Use actual bytecode with builder code for accurate estimation
-        const bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
+        let bytecode: `0x${string}`;
+        if (contractType === 'Custom') {
+          bytecode = formData.customBytecode as `0x${string}`;
+        } else {
+          bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
+        }
+
         const finalBytecode = appendBuilderCode(bytecode);
         
         const gas = await publicClient.estimateGas({
@@ -107,32 +118,41 @@ export function ContractDeployer() {
     if (!walletClient) return;
     
     setIsDeploying(true);
-    setDeployStep('Requesting signature...');
+    setDeployStep('Preparing deployment...');
     try {
       const client = walletClient as any;
 
-      const abi = [
-        {
-          inputs: [
-            { name: 'name', type: 'string' },
-            { name: 'symbol', type: 'string' },
-            { name: contractType === 'ERC20' ? 'initialSupply' : 'baseUri', type: contractType === 'ERC20' ? 'uint256' : 'string' }
-          ],
-          stateMutability: 'nonpayable',
-          type: 'constructor'
+      let abi: any[] = [];
+      let args: any[] = [];
+      let bytecode: `0x${string}`;
+
+      if (contractType === 'ERC20') {
+        abi = ERC20_ABI;
+        args = [formData.name, formData.symbol, 18, parseEther(formData.supply)];
+        bytecode = ERC20_BYTECODE as `0x${string}`;
+      } else if (contractType === 'ERC721') {
+        abi = ERC721_ABI;
+        args = [formData.name, formData.symbol];
+        bytecode = ERC721_BYTECODE as `0x${string}`;
+      } else {
+        // Custom deployment
+        bytecode = formData.customBytecode as `0x${string}`;
+        // For custom, we might need to parse ABI if provided
+        if (formData.customAbi) {
+          try {
+            abi = JSON.parse(formData.customAbi);
+          } catch (e) {
+            toast.error("Invalid ABI format. Please provide valid JSON.");
+            setIsDeploying(false);
+            return;
+          }
         }
-      ];
-
-      const args = contractType === 'ERC20' 
-        ? [formData.name, formData.symbol, parseEther(formData.supply)]
-        : [formData.name, formData.symbol, formData.baseUri];
-
-      const bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
+      }
       
-      // Ensure bytecode is valid hex and append builder code as per ERC-8021
       const finalBytecode = appendBuilderCode(bytecode);
 
       toast.loading("Confirming in wallet...", { id: 'deploy' });
+      setDeployStep('Awaiting signature...');
 
       const hash = await client.deployContract({
         abi,
@@ -172,8 +192,8 @@ export function ContractDeployer() {
 
         saveToHistory({
           address,
-          name: formData.name,
-          symbol: formData.symbol,
+          name: formData.name || 'Custom Contract',
+          symbol: formData.symbol || 'CUST',
           type: contractType,
           timestamp: Date.now()
         });
@@ -218,6 +238,15 @@ export function ContractDeployer() {
             >
               ERC-721
             </button>
+            <button 
+              onClick={() => setContractType('Custom')}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-xs font-medium transition-all",
+                contractType === 'Custom' ? "bg-blue-600 text-white shadow-lg" : "text-white/60 hover:text-white"
+              )}
+            >
+              Custom
+            </button>
           </div>
         </div>
 
@@ -235,6 +264,7 @@ export function ContractDeployer() {
                 className="p-3"
                 onClick={() => {
                   navigator.clipboard.writeText(deployedAddress);
+                  toast.success("Address copied!");
                 }}
               >
                 <Copy className="w-4 h-4" />
@@ -248,99 +278,126 @@ export function ContractDeployer() {
               >
                 View on BaseScan
               </Button>
-              <Button 
-                variant="ghost"
-                className="gap-2"
-                onClick={() => {
-                  const text = `I just deployed my new ${contractType} token "${formData.name}" on @base! 🚀\n\nContract: ${deployedAddress}\n\nCheck it out on Base Nexus!`;
-                  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
-                }}
-              >
-                <Share2 className="w-4 h-4" />
-                Share
-              </Button>
             </div>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm text-white/60">Name</label>
-                <input 
-                  placeholder={contractType === 'ERC20' ? "e.g. Base Nexus" : "e.g. Base Nexus Pass"}
-                  className={cn(
-                    "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
-                    errors.name ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
-                  )}
-                  value={formData.name}
-                  onChange={(e) => {
-                    setFormData({...formData, name: e.target.value});
-                    if (errors.name) setErrors({...errors, name: ''});
-                  }}
-                />
-                {errors.name && <p className="text-[10px] text-red-400 font-medium">{errors.name}</p>}
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-white/60">Symbol</label>
-                <input 
-                  placeholder={contractType === 'ERC20' ? "e.g. NEXUS" : "e.g. BNP"}
-                  className={cn(
-                    "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
-                    errors.symbol ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
-                  )}
-                  value={formData.symbol}
-                  onChange={(e) => {
-                    setFormData({...formData, symbol: e.target.value});
-                    if (errors.symbol) setErrors({...errors, symbol: ''});
-                  }}
-                />
-                {errors.symbol && <p className="text-[10px] text-red-400 font-medium">{errors.symbol}</p>}
-              </div>
-            </div>
-            {contractType === 'ERC20' ? (
-              <div className="space-y-2">
-                <label className="text-sm text-white/60">Initial Supply</label>
-                <input 
-                  type="number"
-                  placeholder="1,000,000"
-                  className={cn(
-                    "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
-                    errors.supply ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
-                  )}
-                  value={formData.supply}
-                  onChange={(e) => {
-                    setFormData({...formData, supply: e.target.value});
-                    if (errors.supply) setErrors({...errors, supply: ''});
-                  }}
-                />
-                {errors.supply && <p className="text-[10px] text-red-400 font-medium">{errors.supply}</p>}
+            {contractType === 'Custom' ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm text-white/60 flex items-center gap-2">
+                    <FileCode className="w-4 h-4" />
+                    Contract Bytecode
+                  </label>
+                  <textarea 
+                    placeholder="0x60806040..."
+                    className={cn(
+                      "w-full bg-white/5 border rounded-xl px-4 py-3 text-white font-mono text-xs outline-none transition-all h-32 resize-none",
+                      errors.customBytecode ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
+                    )}
+                    value={formData.customBytecode}
+                    onChange={(e) => {
+                      setFormData({...formData, customBytecode: e.target.value});
+                      if (errors.customBytecode) setErrors({...errors, customBytecode: ''});
+                    }}
+                  />
+                  {errors.customBytecode && <p className="text-[10px] text-red-400 font-medium">{errors.customBytecode}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm text-white/60 flex items-center gap-2">
+                    <Settings2 className="w-4 h-4" />
+                    ABI (Optional)
+                  </label>
+                  <textarea 
+                    placeholder='[{"inputs":[],"stateMutability":"nonpayable","type":"constructor"}]'
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs outline-none transition-all h-24 resize-none focus:border-blue-500/50"
+                    value={formData.customAbi}
+                    onChange={(e) => setFormData({...formData, customAbi: e.target.value})}
+                  />
+                </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm text-white/60">Base URI</label>
-                  <div className="group relative">
-                    <Info className="w-3 h-3 text-white/20 cursor-help" />
-                    <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-black/90 border border-white/10 rounded-xl text-[10px] text-white/60 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                      The Base URI is the folder URL where your NFT metadata (JSON files) is hosted. 
-                      Example: <span className="text-blue-400">ipfs://Qm.../</span> or <span className="text-blue-400">https://api.myapp.com/metadata/</span>
-                    </div>
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm text-white/60">Name</label>
+                    <input 
+                      placeholder={contractType === 'ERC20' ? "e.g. Base Nexus" : "e.g. Base Nexus Pass"}
+                      className={cn(
+                        "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
+                        errors.name ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
+                      )}
+                      value={formData.name}
+                      onChange={(e) => {
+                        setFormData({...formData, name: e.target.value});
+                        if (errors.name) setErrors({...errors, name: ''});
+                      }}
+                    />
+                    {errors.name && <p className="text-[10px] text-red-400 font-medium">{errors.name}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm text-white/60">Symbol</label>
+                    <input 
+                      placeholder={contractType === 'ERC20' ? "e.g. NEXUS" : "e.g. BNP"}
+                      className={cn(
+                        "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
+                        errors.symbol ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
+                      )}
+                      value={formData.symbol}
+                      onChange={(e) => {
+                        setFormData({...formData, symbol: e.target.value});
+                        if (errors.symbol) setErrors({...errors, symbol: ''});
+                      }}
+                    />
+                    {errors.symbol && <p className="text-[10px] text-red-400 font-medium">{errors.symbol}</p>}
                   </div>
                 </div>
-                <input 
-                  placeholder="e.g. ipfs://Qm.../"
-                  className={cn(
-                    "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
-                    errors.baseUri ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
-                  )}
-                  value={formData.baseUri}
-                  onChange={(e) => {
-                    setFormData({...formData, baseUri: e.target.value});
-                    if (errors.baseUri) setErrors({...errors, baseUri: ''});
-                  }}
-                />
-                {errors.baseUri && <p className="text-[10px] text-red-400 font-medium">{errors.baseUri}</p>}
-              </div>
+                {contractType === 'ERC20' ? (
+                  <div className="space-y-2">
+                    <label className="text-sm text-white/60">Initial Supply</label>
+                    <input 
+                      type="number"
+                      placeholder="1,000,000"
+                      className={cn(
+                        "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
+                        errors.supply ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
+                      )}
+                      value={formData.supply}
+                      onChange={(e) => {
+                        setFormData({...formData, supply: e.target.value});
+                        if (errors.supply) setErrors({...errors, supply: ''});
+                      }}
+                    />
+                    {errors.supply && <p className="text-[10px] text-red-400 font-medium">{errors.supply}</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-white/60">Base URI</label>
+                      <div className="group relative">
+                        <Info className="w-3 h-3 text-white/20 cursor-help" />
+                        <div className="absolute bottom-full right-0 mb-2 w-64 p-3 bg-black/90 border border-white/10 rounded-xl text-[10px] text-white/60 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                          The Base URI is the folder URL where your NFT metadata (JSON files) is hosted. 
+                          Example: <span className="text-blue-400">ipfs://Qm.../</span> or <span className="text-blue-400">https://api.myapp.com/metadata/</span>
+                        </div>
+                      </div>
+                    </div>
+                    <input 
+                      placeholder="e.g. ipfs://Qm.../"
+                      className={cn(
+                        "w-full bg-white/5 border rounded-xl px-4 py-3 text-white outline-none transition-all",
+                        errors.baseUri ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-blue-500/50"
+                      )}
+                      value={formData.baseUri}
+                      onChange={(e) => {
+                        setFormData({...formData, baseUri: e.target.value});
+                        if (errors.baseUri) setErrors({...errors, baseUri: ''});
+                      }}
+                    />
+                    {errors.baseUri && <p className="text-[10px] text-red-400 font-medium">{errors.baseUri}</p>}
+                  </div>
+                )}
+              </>
             )}
 
             <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl flex flex-col gap-3">

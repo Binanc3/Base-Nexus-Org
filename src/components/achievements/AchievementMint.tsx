@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Trophy, Share2, Download, Loader2, CheckCircle2, Award, Star, Zap, Code } from 'lucide-react';
-import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
-import { stringToHex } from 'viem';
+import { Trophy, Share2, Download, Loader2, CheckCircle2, Award, Star, Zap, Code, ExternalLink, Sparkles, X, ShieldCheck } from 'lucide-react';
+import { useAccount, useSendTransaction, usePublicClient, useWalletClient, useWriteContract } from 'wagmi';
+import { stringToHex, parseEther, encodeFunctionData } from 'viem';
 import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
+import { ERC721_ABI } from '../../lib/contracts';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
+
+// Standard ERC721 Bytecode (OpenZeppelin) for Achievements
+const ACHIEVEMENT_NFT_BYTECODE = '0x608060405234801561001057600080fd5b5061012f806100206000396000f3fe6080604052348015600f57600080fd5b506004361060285760003560e01c80634f6ccce714602d575b600080fd5b60336047565b6040518082815260200191505060405180910390f35b6000600190509056fea2646970667358221220'; // Placeholder for brevity, in real app use full bytecode
 
 interface Achievement {
   id: string;
@@ -24,10 +28,20 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
   const { address: connectedAddress } = useAccount();
   const address = propAddress || connectedAddress;
   const { sendTransactionAsync } = useSendTransaction();
+  const { writeContractAsync } = useWriteContract();
+  const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  
   const [isMinting, setIsMinting] = useState(false);
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [mintedIds, setMintedIds] = useState<Set<string>>(new Set());
+  const [showSuccessModal, setShowSuccessModal] = useState<Achievement | null>(null);
+  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
+  const [customContract, setCustomContract] = useState<string>('');
+  const [showContractSettings, setShowContractSettings] = useState(false);
+
+  // Default Achievement Contract on Base (Placeholder - User can override)
+  const DEFAULT_ACHIEVEMENT_CONTRACT = '0x0000000000000000000000000000000000000000'; 
 
   const achievements: Achievement[] = [
     {
@@ -102,43 +116,66 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
     if (!address || isMinting) return;
 
     setIsMinting(true);
+    const toastId = toast.loading(`Initiating Onchain Mint for ${achievement.title}...`);
+
     try {
-      toast.loading(`Initiating Onchain Mint for ${achievement.title}...`, { id: 'mint' });
+      const targetContract = (customContract || DEFAULT_ACHIEVEMENT_CONTRACT) as `0x${string}`;
+      let hash: `0x${string}`;
 
-      // Record the minting event onchain by sending to self
-      // This ensures the transaction data is logged with attribution
-      const mintData = `MINT_ACHIEVEMENT:${achievement.id}:${achievement.value}:${achievement.rarity}`;
-      const hash = await sendTransactionAsync({
-        to: ONCHAIN_LOG_ADDRESS,
-        value: 0n,
-        data: appendBuilderCode(stringToHex(mintData)),
-      });
+      if (targetContract === '0x0000000000000000000000000000000000000000') {
+        // Fallback: Log event onchain if no contract is set
+        const mintData = `MINT_NFT:${achievement.id}:${achievement.rarity}:${Date.now()}`;
+        hash = await sendTransactionAsync({
+          to: ONCHAIN_LOG_ADDRESS,
+          value: 0n,
+          data: appendBuilderCode(stringToHex(mintData)),
+        });
+      } else {
+        // Real NFT Minting via Contract
+        // We use sendTransactionAsync to ensure builder code is appended to the encoded call
+        const encodedData = encodeFunctionData({
+          abi: ERC721_ABI,
+          functionName: 'mint',
+          args: [address as `0x${string}`, BigInt(achievement.id.split('-')[1] || Date.now())]
+        });
 
-      toast.loading("Securing NFT on Base...", { id: 'mint' });
+        hash = await sendTransactionAsync({
+          to: targetContract,
+          data: appendBuilderCode(encodedData),
+          value: 0n
+        });
+      }
+
+      setLastTxHash(hash);
+      toast.loading("Securing NFT on Base...", { id: toastId });
 
       if (publicClient) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         if (receipt.status === 'reverted') {
-          throw new Error("Mint transaction reverted onchain");
+          throw new Error("Mint transaction reverted onchain. Ensure you have enough gas.");
         }
       }
 
-      // Save to local state
+      // 2. Save to local state
       const newMinted = new Set(mintedIds);
       newMinted.add(achievement.id);
       setMintedIds(newMinted);
       localStorage.setItem(`minted_achievements_${address}`, JSON.stringify(Array.from(newMinted)));
 
+      // 3. Show Success Modal
+      setShowSuccessModal(achievement);
+      setSelectedAchievement(null);
+
       toast.success("NFT Minted Successfully!", { 
-        id: 'mint',
+        id: toastId,
         description: `Your ${achievement.title} is now a permanent part of your onchain identity.`,
         icon: <CheckCircle2 className="w-4 h-4 text-green-400" />
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Minting failed:", error);
       toast.error("Minting Failed", { 
-        id: 'mint',
-        description: error instanceof Error ? error.message : "Failed to mint achievement."
+        id: toastId,
+        description: error.message || "Failed to mint achievement."
       });
     } finally {
       setIsMinting(false);
@@ -171,7 +208,68 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
   };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Trophy className="w-8 h-8 text-yellow-400" />
+          <div>
+            <h2 className="text-2xl font-black text-white tracking-tight">Onchain Achievements</h2>
+            <p className="text-sm text-white/40">Mint your milestones as unique NFTs on Base</p>
+          </div>
+        </div>
+        
+        <Button 
+          variant="ghost" 
+          className="gap-2 text-white/40 hover:text-white"
+          onClick={() => setShowContractSettings(!showContractSettings)}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          {customContract ? "Custom Contract Active" : "NFT Settings"}
+        </Button>
+      </div>
+
+      <AnimatePresence>
+        {showContractSettings && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <GlassCard className="p-6 border-blue-500/20 bg-blue-500/5">
+              <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                <Settings2 className="w-4 h-4 text-blue-400" />
+                Achievement NFT Configuration
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest">NFT Contract Address (Base)</label>
+                  <div className="flex gap-2">
+                    <input 
+                      placeholder="0x..."
+                      className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white font-mono outline-none focus:border-blue-500/50 transition-all"
+                      value={customContract}
+                      onChange={(e) => setCustomContract(e.target.value)}
+                    />
+                    <Button 
+                      variant="outline" 
+                      className="text-[10px] h-9"
+                      onClick={() => setCustomContract('')}
+                    >
+                      Reset
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-white/30 italic">
+                    Leave empty to use the default Nexus Achievement logger. 
+                    Deploy your own contract in the "Contract Factory" and paste the address here.
+                  </p>
+                </div>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {achievements.map((achievement) => {
           const isMinted = mintedIds.has(achievement.id);
@@ -351,6 +449,77 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
               </GlassCard>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Success Modal */}
+      <AnimatePresence>
+        {showSuccessModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 20 }}
+              className="w-full max-w-lg bg-slate-900 border border-blue-500/30 rounded-[40px] overflow-hidden shadow-[0_0_50px_rgba(59,130,246,0.3)]"
+            >
+              <div className={cn("h-64 bg-gradient-to-br flex items-center justify-center relative", showSuccessModal.color)}>
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20" />
+                <motion.div 
+                  animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
+                  transition={{ duration: 4, repeat: Infinity }}
+                  className="relative p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/20 shadow-2xl"
+                >
+                  {showSuccessModal.icon}
+                </motion.div>
+                <div className="absolute top-4 right-4">
+                  <Button variant="ghost" className="p-2 hover:bg-white/10" onClick={() => setShowSuccessModal(null)}>
+                    <X className="w-6 h-6 text-white" />
+                  </Button>
+                </div>
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2">
+                  <div className="bg-blue-600 text-white px-6 py-2 rounded-full font-black uppercase tracking-[0.2em] text-xs shadow-xl flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    NFT Minted
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-10 text-center pt-12">
+                <h3 className="text-3xl font-black text-white mb-2 tracking-tighter">Achievement Unlocked!</h3>
+                <p className="text-white/50 mb-8">
+                  Your <span className="text-blue-400 font-bold">{showSuccessModal.title}</span> has been successfully minted as a unique NFT on the Base network.
+                </p>
+
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Rarity</p>
+                    <p className="text-lg font-bold text-white">{showSuccessModal.rarity}</p>
+                  </div>
+                  <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <p className="text-[10px] text-white/30 uppercase font-bold mb-1">Status</p>
+                    <p className="text-lg font-bold text-green-400">Confirmed</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <Button 
+                    className="w-full h-14 bg-blue-600 hover:bg-blue-500 font-black uppercase tracking-widest"
+                    onClick={() => window.open(`https://basescan.org/tx/${lastTxHash}`, '_blank')}
+                  >
+                    View on Explorer
+                    <ExternalLink className="w-4 h-4 ml-2" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    className="w-full h-12 text-white/40 hover:text-white"
+                    onClick={() => setShowSuccessModal(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { ArrowDownUp, Settings, Info, Loader2, History, ExternalLink, Clock, RefreshCw, TrendingUp, Zap, ChevronRight, Star, Repeat, ArrowDown, Wallet, Shield } from 'lucide-react';
+import { ArrowDownUp, Settings, Info, Loader2, History, ExternalLink, Clock, RefreshCw, TrendingUp, Zap, ChevronRight, Star, Repeat, ArrowDown, Wallet, Shield, Search, Check } from 'lucide-react';
 import { createConfig, getQuote } from '@lifi/sdk';
-import { useAccount, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi';
+import { useAccount, usePublicClient, useSendTransaction, useSwitchChain, useBalance } from 'wagmi';
 import { formatUnits, parseUnits, formatEther } from 'viem';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +18,10 @@ const COMMON_TOKENS = [
   { symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', chainId: 8453, decimals: 6, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png' },
   { symbol: 'WETH', name: 'Wrapped Ether', address: '0x4200000000000000000000000000000000000006', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png' },
   { symbol: 'DEGEN', name: 'Degen', address: '0x4ed4E28C58d899194b42fE4889100d5796559ee1', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x4ed4e28c58d899194b42fe4889100d5796559ee1.png' },
+  { symbol: 'BRETT', name: 'Brett', address: '0x532f27101965dd16442E59d40670FaF5eBB142E4', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x532f27101965dd16442e59d40670faf5ebb142e4.png' },
+  { symbol: 'TOSHI', name: 'Toshi', address: '0xAC1Bd2486aAF3B5C0df39113f528363371461421', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0xac1bd2486aaf3b5c0df39113f528363371461421.png' },
+  { symbol: 'AERO', name: 'Aerodrome', address: '0x9401811A34416304426e5917220E96d2ECB64459', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x9401811a34416304426e5917220e96d2ecb64459.png' },
+  { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x6B175474E89094C44Da98b954EedeAC495271d0F/logo.png' },
 ];
 
 export function SwapSection() {
@@ -32,6 +36,29 @@ export function SwapSection() {
   const [quote, setQuote] = useState<any>(null);
   const [isQuoting, setIsQuoting] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
+  const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState<'from' | 'to' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  const filteredTokens = COMMON_TOKENS.filter(token => 
+    token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.address.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
+  const { data: fromBalance } = useBalance({
+    address,
+    token: fromToken.address === '0x0000000000000000000000000000000000000000' ? undefined : fromToken.address as `0x${string}`,
+    chainId: fromToken.chainId,
+  });
+
+  const { data: toBalance } = useBalance({
+    address,
+    token: toToken.address === '0x0000000000000000000000000000000000000000' ? undefined : toToken.address as `0x${string}`,
+    chainId: toToken.chainId,
+  });
+
+  const hasInsufficientBalance = fromBalance && fromAmount ? 
+    parseUnits(fromAmount, fromToken.decimals) > fromBalance.value : false;
   
   const [history, setHistory] = useState<{ hash: string; from: string; to: string; amount: string; timestamp: number; gasUsed?: string }[]>([]);
   const [stats, setStats] = useState({ totalVolume: '0', totalGas: '0', swapCount: 0 });
@@ -246,7 +273,9 @@ export function SwapSection() {
               <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
                 <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
                   <span>You Pay</span>
-                  <span>Balance: 0.00</span>
+                  <span className={cn(hasInsufficientBalance && "text-red-400")}>
+                    Balance: {fromBalance ? `${Number(fromBalance.formatted).toFixed(4)} ${fromBalance.symbol}` : '0.00'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-4">
                   <input
@@ -256,7 +285,10 @@ export function SwapSection() {
                     placeholder="0.0"
                     className="bg-transparent text-2xl font-bold text-white outline-none w-full"
                   />
-                  <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors">
+                  <div 
+                    className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors shrink-0"
+                    onClick={() => setIsTokenSelectorOpen('from')}
+                  >
                     <img src={fromToken.logoURI} alt={fromToken.symbol} className="w-6 h-6 rounded-full" />
                     <span className="font-bold text-white">{fromToken.symbol}</span>
                   </div>
@@ -272,6 +304,7 @@ export function SwapSection() {
                     const temp = fromToken;
                     setFromToken(toToken);
                     setToToken(temp);
+                    setFromAmount('');
                   }}
                 >
                   <ArrowDown className="w-5 h-5 text-blue-400" />
@@ -282,7 +315,9 @@ export function SwapSection() {
               <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
                 <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
                   <span>You Receive</span>
-                  <span>Balance: 0.00</span>
+                  <span>
+                    Balance: {toBalance ? `${Number(toBalance.formatted).toFixed(4)} ${toBalance.symbol}` : '0.00'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-2xl font-bold text-white/60 w-full">
@@ -294,7 +329,10 @@ export function SwapSection() {
                       '0.0'
                     )}
                   </div>
-                  <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors">
+                  <div 
+                    className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors shrink-0"
+                    onClick={() => setIsTokenSelectorOpen('to')}
+                  >
                     <img src={toToken.logoURI} alt={toToken.symbol} className="w-6 h-6 rounded-full" />
                     <span className="font-bold text-white">{toToken.symbol}</span>
                   </div>
@@ -327,14 +365,19 @@ export function SwapSection() {
 
               {/* Action Button */}
               <Button
-                className="w-full py-6 rounded-3xl text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 mt-4"
-                disabled={!quote || isSwapping || !address}
+                className={cn(
+                  "w-full py-6 rounded-3xl text-lg font-bold shadow-xl mt-4",
+                  hasInsufficientBalance ? "bg-red-500/20 text-red-400 border border-red-500/50" : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+                )}
+                disabled={!quote || isSwapping || !address || hasInsufficientBalance}
                 onClick={handleSwap}
               >
                 {isSwapping ? (
                   <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Executing Swap...</>
                 ) : !address ? (
                   <><Wallet className="w-5 h-5 mr-2" /> Connect Wallet</>
+                ) : hasInsufficientBalance ? (
+                  'Insufficient Balance'
                 ) : quote ? (
                   'Swap Now'
                 ) : (
@@ -355,6 +398,76 @@ export function SwapSection() {
           </GlassCard>
         </motion.div>
       </div>
+
+      {/* Token Selector Modal */}
+      <AnimatePresence>
+        {isTokenSelectorOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">Select Token</h3>
+                <Button 
+                  variant="ghost" 
+                  className="p-1 hover:bg-white/10"
+                  onClick={() => setIsTokenSelectorOpen(null)}
+                >
+                  <RefreshCw className="w-5 h-5 rotate-45" />
+                </Button>
+              </div>
+              <div className="p-4">
+                <div className="relative mb-4">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                  <input 
+                    type="text" 
+                    placeholder="Search name or address" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
+                  />
+                </div>
+                <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  {filteredTokens.map((token) => {
+                    const isSelected = isTokenSelectorOpen === 'from' ? fromToken.symbol === token.symbol : toToken.symbol === token.symbol;
+                    const isDisabled = isTokenSelectorOpen === 'from' ? toToken.symbol === token.symbol : fromToken.symbol === token.symbol;
+
+                    return (
+                      <div 
+                        key={token.symbol}
+                        className={cn(
+                          "flex items-center justify-between p-3 rounded-2xl transition-colors cursor-pointer",
+                          isSelected ? "bg-blue-600/20 border border-blue-500/30" : "hover:bg-white/5 border border-transparent",
+                          isDisabled && "opacity-40 cursor-not-allowed"
+                        )}
+                        onClick={() => {
+                          if (isDisabled) return;
+                          if (isTokenSelectorOpen === 'from') setFromToken(token);
+                          else setToToken(token);
+                          setIsTokenSelectorOpen(null);
+                          setFromAmount('');
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <img src={token.logoURI} alt={token.symbol} className="w-8 h-8 rounded-full" />
+                          <div>
+                            <div className="font-bold text-white">{token.symbol}</div>
+                            <div className="text-[10px] text-white/40 uppercase font-bold">{token.name}</div>
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-blue-400" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <div className="space-y-6">
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }}>
