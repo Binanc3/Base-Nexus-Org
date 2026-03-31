@@ -52,9 +52,16 @@ export function SwapSection() {
         
         // LiFi sometimes returns raw amount as USD (common bug with some providers)
         // If USD value is more than 1000x the normalized amount, it's likely raw
+        // We also check if the USD value is suspiciously high for a single swap
         let actualUsd = usdValue;
-        if (usdValue > 0 && normalizedAmount > 0 && (usdValue / normalizedAmount > 1000)) {
-          actualUsd = normalizedAmount;
+        if (usdValue > 0 && normalizedAmount > 0) {
+          const ratio = usdValue / normalizedAmount;
+          // If the ratio is exactly a power of 10 (like 10^6 or 10^18), it's definitely raw
+          const isPowerOf10 = Math.abs(Math.log10(ratio) - Math.round(Math.log10(ratio))) < 0.0001;
+          
+          if (isPowerOf10 || ratio > 10000) {
+            actualUsd = normalizedAmount;
+          }
         } else if (usdValue === 0 && normalizedAmount > 0) {
           // Fallback if USD value is missing
           actualUsd = normalizedAmount;
@@ -101,50 +108,50 @@ export function SwapSection() {
   return (
     <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
       <div className="lg:col-span-3 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <GlassCard className="p-5 bg-blue-600/5 border-blue-500/20 relative overflow-hidden group">
+            <GlassCard className="p-4 bg-blue-600/5 border-blue-500/20 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-blue-500/20 transition-all" />
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-blue-500/20 rounded-lg">
-                  <TrendingUp className="w-4 h-4 text-blue-400" />
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-blue-500/20 rounded-lg">
+                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
                 </div>
-                <span className="text-xs text-white/60 uppercase font-bold tracking-wider">Total Volume</span>
+                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Volume</span>
               </div>
-              <div className="text-3xl font-bold text-white tracking-tight">${Number(stats.totalVolume).toLocaleString()}</div>
+              <div className="text-2xl font-bold text-white tracking-tight">${Number(stats.totalVolume).toLocaleString()}</div>
             </GlassCard>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <GlassCard className="p-5 bg-purple-600/5 border-purple-500/20 relative overflow-hidden group">
+            <GlassCard className="p-4 bg-purple-600/5 border-purple-500/20 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-purple-500/20 transition-all" />
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-purple-500/20 rounded-lg">
-                  <Zap className="w-4 h-4 text-purple-400" />
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-purple-500/20 rounded-lg">
+                  <Zap className="w-3.5 h-3.5 text-purple-400" />
                 </div>
-                <span className="text-xs text-white/60 uppercase font-bold tracking-wider">Gas Saved</span>
+                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Gas Saved</span>
               </div>
-              <div className="text-3xl font-bold text-white tracking-tight">{Number(stats.totalGas).toFixed(4)} ETH</div>
+              <div className="text-2xl font-bold text-white tracking-tight">{Number(stats.totalGas).toFixed(4)} ETH</div>
             </GlassCard>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <GlassCard className="p-5 bg-green-600/5 border-green-500/20 relative overflow-hidden group">
+            <GlassCard className="p-4 bg-green-600/5 border-green-500/20 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-green-500/20 transition-all" />
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 bg-green-500/20 rounded-lg">
-                  <ArrowDownUp className="w-4 h-4 text-green-400" />
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-green-500/20 rounded-lg">
+                  <ArrowDownUp className="w-3.5 h-3.5 text-green-400" />
                 </div>
-                <span className="text-xs text-white/60 uppercase font-bold tracking-wider">Total Swaps</span>
+                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Swaps</span>
               </div>
-              <div className="text-3xl font-bold text-white tracking-tight">{stats.swapCount}</div>
+              <div className="text-2xl font-bold text-white tracking-tight">{stats.swapCount}</div>
             </GlassCard>
           </motion.div>
         </div>
 
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}>
-          <GlassCard className="p-6 min-h-[600px] relative">
-            <div className="flex items-center justify-between mb-8">
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}>
+          <GlassCard className="p-0 sm:p-4 min-h-[650px] relative overflow-hidden">
+            <div className="flex items-center justify-between p-6 pb-2">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
                   <Repeat className="w-6 h-6 text-white" />
@@ -172,7 +179,7 @@ export function SwapSection() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-black/40 p-2 shadow-2xl overflow-hidden">
+            <div className="rounded-[32px] border border-white/10 bg-black/40 p-1 sm:p-2 shadow-2xl overflow-hidden mx-2 sm:mx-4">
               <LiFiWidget
                 integrator="BaseNexus"
                 config={{

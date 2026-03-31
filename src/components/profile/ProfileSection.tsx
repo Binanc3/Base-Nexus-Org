@@ -18,7 +18,7 @@ interface UserStats {
 }
 
 export function ProfileSection() {
-  const { address } = useAccount();
+  const { address: loggedInAddress } = useAccount();
   const [activeTab, setActiveTab] = useState<'stats' | 'achievements'>('stats');
   const [context, setContext] = useState<any>();
   const [stats, setStats] = useState<UserStats>({
@@ -30,6 +30,25 @@ export function ProfileSection() {
     highScores: []
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [viewAddress, setViewAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const userParam = params.get('user');
+    const achievementParam = params.get('achievement');
+
+    if (userParam) {
+      setViewAddress(userParam);
+    } else if (loggedInAddress) {
+      setViewAddress(loggedInAddress);
+    }
+
+    if (achievementParam) {
+      setActiveTab('achievements');
+    }
+  }, [loggedInAddress]);
+
+  const effectiveAddress = viewAddress || loggedInAddress;
 
   useEffect(() => {
     const getContext = async () => {
@@ -44,26 +63,26 @@ export function ProfileSection() {
   }, []);
 
   useEffect(() => {
-    if (!address) return;
+    if (!effectiveAddress) return;
 
     const fetchStats = async () => {
       setIsLoading(true);
       try {
         // 1. Get Swap Stats from LocalStorage (since we don't have a global indexer yet)
-        const savedSwapStats = localStorage.getItem(`swap_stats_${address}`);
+        const savedSwapStats = localStorage.getItem(`swap_stats_${effectiveAddress}`);
         const swapData = savedSwapStats ? JSON.parse(savedSwapStats) : { swapCount: 0, totalVolume: '0' };
 
         // 2. Fetch Deployment Count from Supabase
         const { count: deployCount } = await supabase
           .from('deployments')
           .select('*', { count: 'exact', head: true })
-          .eq('user_address', address);
+          .eq('user_address', effectiveAddress);
 
         // 3. Fetch High Scores from Supabase
         const { data: scoresData } = await supabase
           .from('leaderboards')
           .select('game_id, score')
-          .eq('user_address', address)
+          .eq('user_address', effectiveAddress)
           .order('score', { ascending: false });
 
         // Get highest score per game
@@ -79,13 +98,13 @@ export function ProfileSection() {
         const { count: messageCount } = await supabase
           .from('messages')
           .select('*', { count: 'exact', head: true })
-          .eq('user_address', address);
+          .eq('user_address', effectiveAddress);
 
         // 5. Fetch Checkin Count from Supabase
         const { count: checkinCount } = await supabase
           .from('checkins')
           .select('*', { count: 'exact', head: true })
-          .eq('user_address', address);
+          .eq('user_address', effectiveAddress);
 
         setStats({
           totalSwaps: swapData.swapCount,
@@ -103,9 +122,14 @@ export function ProfileSection() {
     };
 
     fetchStats();
-  }, [address]);
+  }, [effectiveAddress]);
 
-  if (!address) return null;
+  if (!effectiveAddress) return (
+    <div className="text-center py-20">
+      <Trophy className="w-12 h-12 text-white/20 mx-auto mb-4" />
+      <h2 className="text-xl font-bold text-white">Connect your wallet to view your profile</h2>
+    </div>
+  );
 
   const container = {
     hidden: { opacity: 0 },
@@ -151,21 +175,26 @@ export function ProfileSection() {
                   </div>
                 )}
                 <div className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl font-mono text-sm text-blue-400 flex items-center gap-2">
-                  {address.substring(0, 8)}...{address.substring(34)}
-                  <button onClick={() => navigator.clipboard.writeText(address)} className="hover:text-white transition-colors">
+                  {effectiveAddress.substring(0, 8)}...{effectiveAddress.substring(34)}
+                  <button onClick={() => navigator.clipboard.writeText(effectiveAddress)} className="hover:text-white transition-colors">
                     <Copy className="w-3 h-3" />
                   </button>
                 </div>
                 <Button 
                   variant="outline" 
                   className="text-xs h-9 gap-2"
-                  onClick={() => window.open(`https://basescan.org/address/${address}`, '_blank')}
+                  onClick={() => window.open(`https://basescan.org/address/${effectiveAddress}`, '_blank')}
                 >
                   <ExternalLink className="w-3 h-3" />
                   BaseScan
                 </Button>
               </div>
             </div>
+            {viewAddress !== loggedInAddress && (
+              <div className="absolute top-4 right-4 px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full text-[10px] font-bold text-blue-400 uppercase tracking-widest">
+                Viewing Profile
+              </div>
+            )}
             <div className="flex gap-4">
               <div className="text-center px-6 py-3 bg-white/5 rounded-2xl border border-white/10">
                 <div className="text-2xl font-bold text-white">{stats.totalSwaps + stats.contractsDeployed + stats.totalMessages}</div>
@@ -340,6 +369,7 @@ export function ProfileSection() {
         </>
       ) : (
         <AchievementMint 
+          address={effectiveAddress}
           stats={{
             highScore: stats.highScores.length > 0 ? Math.max(...stats.highScores.map(s => s.score)) : 0,
             deployments: stats.contractsDeployed,

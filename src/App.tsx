@@ -107,7 +107,14 @@ function MainApp() {
     window.close();
   };
 
+  const isLoggingRef = useRef<Record<string, boolean>>({});
+
   const handleGameComplete = async (game: string, score: number) => {
+    // Prevent double logging for the same game session
+    const sessionKey = `${game}-${score}-${Date.now()}`;
+    if (isLoggingRef.current[game]) return;
+    isLoggingRef.current[game] = true;
+
     setLastScore({ game, score });
     
     // 1. Save to Supabase for Leaderboard
@@ -133,7 +140,7 @@ function MainApp() {
         toast.loading("Logging score onchain...", { id: 'game-score' });
         
         const hash = await sendTransactionAsync({
-          to: '0x0000000000000000000000000000000000008021',
+          to: address, // Send to self to log data with attribution
           value: 0n,
           data: `${stringToHex(`SCORE:${score}`).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
         });
@@ -146,7 +153,14 @@ function MainApp() {
       } catch (err) {
         console.error("Onchain score logging failed:", err);
         toast.error("Onchain Logging Failed", { id: 'game-score' });
+      } finally {
+        // Allow logging again after a short delay or next game
+        setTimeout(() => {
+          isLoggingRef.current[game] = false;
+        }, 2000);
       }
+    } else {
+      isLoggingRef.current[game] = false;
     }
   };
 

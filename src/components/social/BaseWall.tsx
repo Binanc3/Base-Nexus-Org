@@ -80,10 +80,12 @@ export function BaseWall() {
     setIsPosting(true);
     try {
       // 1. Onchain Logging - MANDATORY for wall posts now
-      toast.loading("Confirming in wallet...", { id: 'wall-post' });
+      toast.loading("Posting to Base Wall...", { id: 'wall-post' });
       
+      // We send to the user's own address with the data appended for self-logging
+      // This is a reliable way to log data onchain with builder attribution
       const txHash = await sendTransactionAsync({
-        to: '0x0000000000000000000000000000000000008021',
+        to: address,
         value: 0n,
         data: `${stringToHex(newMessage.trim()).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });

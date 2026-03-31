@@ -51,10 +51,12 @@ export function OnchainAI() {
       const summary = `AI_SESSION:${messages.length}_MSGS:${messages[messages.length-1].content.substring(0, 20)}...`;
       const summaryHex = stringToHex(summary);
 
-      toast.loading("Confirming in wallet...", { id: 'ai-log' });
+      toast.loading("Logging AI session onchain...", { id: 'ai-log' });
 
+      // We send to the user's own address with the data appended for self-logging
+      // This is a reliable way to log data onchain with builder attribution
       const hash = await sendTransactionAsync({
-        to: '0x0000000000000000000000000000000000008021',
+        to: address,
         value: 0n,
         data: `${stringToHex(summary).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });

@@ -5,10 +5,10 @@ import farcasterConnector from '@farcaster/miniapp-wagmi-connector';
 import { stringToHex, pad, isHex } from 'viem';
 
 // Base Builder Code (ERC-8021) Helper
-// Ensures the code is correctly formatted as a 32-byte hex string ending in 8021
+// Ensures the code is correctly formatted as an 8-byte hex string ending in 8021
 export function formatBuilderCode(code: string): `0x${string}` {
-  // Default to 1890 (0x0762) if no code provided, left-padded
-  if (!code) return '0x0000000000000000000000000000000000000000000000000000000007628021';
+  // Default to 1890 (0x0762) if no code provided, left-padded to 6 bytes before suffix
+  if (!code) return '0x0000000007628021';
   
   let hexCode: `0x${string}`;
   let isNumeric = false;
@@ -22,15 +22,18 @@ export function formatBuilderCode(code: string): `0x${string}` {
     isNumeric = true;
   } else {
     // Otherwise treat as string
-    hexCode = stringToHex(code);
+    // If string is longer than 6 chars, we truncate it to fit the 6-byte limit
+    const truncated = code.substring(0, 6);
+    hexCode = stringToHex(truncated);
     isNumeric = false;
   }
   
-  // Base Builder Attribution format: 32 bytes ending in 0x8021
-  // Use left padding for numbers/hex IDs (standard for uint256/uint240)
-  // Use right padding for strings (standard for bytes32/bytes30)
-  const padded = pad(hexCode, { size: 30, dir: isNumeric ? 'left' : 'right' });
-  const finalCode = `${padded.slice(0, 62)}8021` as `0x${string}`;
+  // Base Builder Attribution format: 8 bytes total (16 hex characters) ending in 8021
+  // The data part is 6 bytes, and the suffix is 2 bytes (8021)
+  const padded = pad(hexCode, { size: 6, dir: isNumeric ? 'left' : 'right' });
+  // padded is 0x + 12 hex chars (6 bytes)
+  // We take the 6 bytes and append 8021 (2 bytes) for a total of 8 bytes
+  const finalCode = `${padded}8021` as `0x${string}`;
   
   console.log(`[BaseNexus] Builder Code Formatted: ${finalCode} (Source: ${code})`);
   return finalCode;

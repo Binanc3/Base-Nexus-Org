@@ -14,6 +14,8 @@ export function CheckIn() {
   const [streak, setStreak] = useState(0);
   const [totalCheckins, setTotalCheckins] = useState(0);
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const [hasGM, setHasGM] = useState(false);
+  const [hasGN, setHasGN] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +36,7 @@ export function CheckIn() {
           // Calculate real streak
           let currentStreak = 0;
           const today = new Date();
+          const todayStr = today.toDateString();
           today.setHours(0, 0, 0, 0);
           
           const uniqueDays = new Set();
@@ -65,10 +68,15 @@ export function CheckIn() {
 
           setStreak(currentStreak);
           
-          // Check if already checked in today
-          const lastCheckin = new Date(data[0].created_at).toDateString();
-          if (lastCheckin === new Date().toDateString()) {
-            setLastAction(data[0].checkin_type);
+          // Check if already checked in today (GM and GN)
+          const gmToday = data.find(c => c.checkin_type === 'GM' && new Date(c.created_at).toDateString() === todayStr);
+          const gnToday = data.find(c => c.checkin_type === 'GN' && new Date(c.created_at).toDateString() === todayStr);
+          
+          setHasGM(!!gmToday);
+          setHasGN(!!gnToday);
+          
+          if (gmToday || gnToday) {
+            setLastAction(gmToday ? 'GM' : 'GN');
           }
         }
       } catch (err) {
@@ -81,15 +89,27 @@ export function CheckIn() {
 
   const handleCheckIn = async (type: 'GM' | 'GN') => {
     if (!address || isPending) return;
+    
+    // Check daily limits
+    if (type === 'GM' && hasGM) {
+      toast.error("Already said GM today!", { description: "You can only say GM once per day." });
+      return;
+    }
+    if (type === 'GN' && hasGN) {
+      toast.error("Already said GN today!", { description: "You can only say GN once per day." });
+      return;
+    }
 
     setIsPending(true);
     setError(null);
     try {
       // 1. Send onchain transaction
-      toast.loading("Confirming in wallet...", { id: 'checkin' });
+      toast.loading(`Confirming ${type} in wallet...`, { id: 'checkin' });
       
+      // We send to the user's own address with the data appended for self-logging
+      // This is a reliable way to log data onchain with builder attribution
       const hash = await sendTransactionAsync({
-        to: '0x0000000000000000000000000000000000008021',
+        to: address,
         value: 0n,
         data: `${stringToHex(type).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });
@@ -119,8 +139,13 @@ export function CheckIn() {
       });
 
       setLastAction(type);
+      if (type === 'GM') setHasGM(true);
+      if (type === 'GN') setHasGN(true);
       setTotalCheckins(prev => prev + 1);
-      setStreak(prev => prev + 1);
+      // Only increment streak if it's the first checkin of the day
+      if (!hasGM && !hasGN) {
+        setStreak(prev => prev + 1);
+      }
     } catch (err) {
       console.error("Check-in failed:", err);
       const message = err instanceof Error ? err.message : "Check-in failed. Please ensure you have enough ETH for gas.";
