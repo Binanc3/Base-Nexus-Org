@@ -3,7 +3,7 @@ import { GlassCard, Button } from '../ui/GlassUI';
 import { Trophy, Share2, Download, Loader2, CheckCircle2, Award, Star, Zap, Code } from 'lucide-react';
 import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
@@ -109,15 +109,18 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
       // This ensures the transaction data is logged with attribution
       const mintData = `MINT_ACHIEVEMENT:${achievement.id}:${achievement.value}:${achievement.rarity}`;
       const hash = await sendTransactionAsync({
-        to: address,
+        to: ONCHAIN_LOG_ADDRESS,
         value: 0n,
-        data: `0x${stringToHex(mintData).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: appendBuilderCode(stringToHex(mintData)),
       });
 
       toast.loading("Securing NFT on Base...", { id: 'mint' });
 
       if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === 'reverted') {
+          throw new Error("Mint transaction reverted onchain");
+        }
       }
 
       // Save to local state

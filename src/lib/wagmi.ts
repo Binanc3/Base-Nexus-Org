@@ -14,11 +14,7 @@ export function formatBuilderCode(code: string): `0x${string}` {
   let isNumeric = false;
 
   if (isHex(code)) {
-    // If it's already a hex string, we need to ensure it's exactly 6 bytes before adding suffix
-    // We strip 0x, take the last 12 chars (6 bytes), and add 0x back
-    const cleanHex = code.replace('0x', '');
-    const truncatedHex = cleanHex.length > 12 ? cleanHex.slice(-12) : cleanHex;
-    hexCode = `0x${truncatedHex}` as `0x${string}`;
+    hexCode = code as `0x${string}`;
     isNumeric = true;
   } else if (/^\d+$/.test(code)) {
     // If it's a decimal string, convert to hex
@@ -34,7 +30,6 @@ export function formatBuilderCode(code: string): `0x${string}` {
   
   // Base Builder Attribution format: 8 bytes total (16 hex characters) ending in 8021
   // The data part is 6 bytes, and the suffix is 2 bytes (8021)
-  // pad will now work because we ensured hexCode is at most 6 bytes
   const padded = pad(hexCode, { size: 6, dir: isNumeric ? 'left' : 'right' });
   // padded is 0x + 12 hex chars (6 bytes)
   // We take the 6 bytes and append 8021 (2 bytes) for a total of 8 bytes
@@ -44,7 +39,20 @@ export function formatBuilderCode(code: string): `0x${string}` {
   return finalCode;
 }
 
+/**
+ * Appends the Base Builder Code (ERC-8021) to a hex data string.
+ * Ensures the 0x prefix is handled correctly.
+ */
+export function appendBuilderCode(data: `0x${string}` | string): `0x${string}` {
+  const cleanData = data.startsWith('0x') ? data : `0x${data}`;
+  return `${cleanData}${BASE_BUILDER_CODE.slice(2)}` as `0x${string}`;
+}
+
 export const BASE_BUILDER_CODE = formatBuilderCode(import.meta.env.VITE_BASE_BUILDER_CODE || '');
+
+// Dedicated EOA address for logging actions onchain.
+// Sending data to a Smart Wallet (contract) address will revert, so we use a dead address for logging.
+export const ONCHAIN_LOG_ADDRESS = '0x000000000000000000000000000000000000dEaD' as `0x${string}`;
 
 export const config = createConfig({
   chains: [base],

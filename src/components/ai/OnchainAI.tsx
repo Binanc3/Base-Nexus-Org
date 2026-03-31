@@ -5,7 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import { cn } from '@/src/lib/utils';
 import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
 import { toast } from 'sonner';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
@@ -56,15 +56,18 @@ export function OnchainAI() {
       // We send to the user's own address with the data appended for self-logging
       // This is a reliable way to log data onchain with builder attribution
       const hash = await sendTransactionAsync({
-        to: address,
+        to: ONCHAIN_LOG_ADDRESS,
         value: 0n,
-        data: `0x${stringToHex(summary).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: appendBuilderCode(stringToHex(summary)),
       });
 
       toast.loading("Waiting for confirmation...", { id: 'ai-log' });
 
       if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === 'reverted') {
+          throw new Error("Transaction reverted onchain");
+        }
       }
 
       toast.success("AI Session Logged!", { 

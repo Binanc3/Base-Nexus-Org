@@ -5,7 +5,7 @@ import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '@/src/supabase';
 import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
 
@@ -85,9 +85,9 @@ export function BaseWall() {
       // We send to the user's own address with the data appended for self-logging
       // This is a reliable way to log data onchain with builder attribution
       const txHash = await sendTransactionAsync({
-        to: address,
+        to: ONCHAIN_LOG_ADDRESS,
         value: 0n,
-        data: `0x${stringToHex(newMessage.trim()).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: appendBuilderCode(stringToHex(newMessage.trim())),
       });
 
       if (!txHash) throw new Error("Transaction failed or was rejected");
@@ -96,7 +96,10 @@ export function BaseWall() {
 
       // 2. Wait for confirmation
       if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        if (receipt.status === 'reverted') {
+          throw new Error("Transaction reverted onchain");
+        }
       }
 
       // 3. Save to Supabase ONLY if tx was successful

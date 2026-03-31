@@ -5,7 +5,7 @@ import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
 import { parseEther, formatEther, encodeDeployData } from 'viem';
 import { base } from 'wagmi/chains';
 import { supabase } from '../../supabase';
-import { BASE_BUILDER_CODE } from '../../lib/wagmi';
+import { BASE_BUILDER_CODE, appendBuilderCode } from '../../lib/wagmi';
 import { toast } from 'sonner';
 
 import { cn } from '@/src/lib/utils';
@@ -78,10 +78,13 @@ export function ContractDeployer() {
         const client = walletClient as any;
         if (!client?.account) return;
         
-        // Use actual bytecode for accurate estimation
+        // Use actual bytecode with builder code for accurate estimation
+        const bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
+        const finalBytecode = appendBuilderCode(bytecode);
+        
         const gas = await publicClient.estimateGas({
           account: client.account.address,
-          data: (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`,
+          data: finalBytecode,
         });
         
         const gasPrice = await publicClient.getGasPrice();
@@ -127,8 +130,7 @@ export function ContractDeployer() {
       const bytecode = (contractType === 'ERC20' ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`;
       
       // Ensure bytecode is valid hex and append builder code as per ERC-8021
-      const cleanBytecode = bytecode.startsWith('0x') ? bytecode : `0x${bytecode}`;
-      const finalBytecode = `${cleanBytecode}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`;
+      const finalBytecode = appendBuilderCode(bytecode);
 
       toast.loading("Confirming in wallet...", { id: 'deploy' });
 
@@ -145,6 +147,9 @@ export function ContractDeployer() {
 
       if (publicClient) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === 'reverted') {
+          throw new Error("Contract deployment reverted onchain");
+        }
         const address = receipt.contractAddress || '0x...';
         setDeployedAddress(address);
         

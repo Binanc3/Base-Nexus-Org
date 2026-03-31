@@ -11,7 +11,7 @@ import { CheckIn } from './components/checkin/CheckIn';
 import { ProfileSection } from './components/profile/ProfileSection';
 import { cn } from '@/src/lib/utils';
 import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE } from './lib/wagmi';
+import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from './lib/wagmi';
 import { 
   LayoutDashboard, 
   Gamepad2, 
@@ -117,37 +117,37 @@ function MainApp() {
 
     setLastScore({ game, score });
     
-    // 1. Save to Supabase for Leaderboard
-    try {
-      const { error } = await supabase
-        .from('leaderboards')
-        .insert([
-          { 
-            game_id: game, 
-            user_address: address || 'Guest', 
-            score: score 
-          }
-        ]);
-      
-      if (error) throw error;
-    } catch (error) {
-      console.error("Error saving to leaderboard:", error);
-    }
-
-    // 2. Log score onchain ONLY if connected
+    // 1. Log score onchain ONLY if connected
     if (address && isConnected) {
       try {
         toast.loading("Logging score onchain...", { id: 'game-score' });
         
         const hash = await sendTransactionAsync({
-          to: address, // Send to self to log data with attribution
+          to: ONCHAIN_LOG_ADDRESS, // Send to dead address to log data with attribution
           value: 0n,
-          data: `0x${stringToHex(`SCORE:${score}`).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+          data: appendBuilderCode(stringToHex(`SCORE:${score}`)),
         });
 
         if (publicClient) {
-          await publicClient.waitForTransactionReceipt({ hash });
+          const receipt = await publicClient.waitForTransactionReceipt({ hash });
+          if (receipt.status === 'reverted') {
+            throw new Error("Transaction reverted onchain");
+          }
         }
+
+        // 2. Save to Supabase for Leaderboard ONLY if onchain log was successful
+        const { error } = await supabase
+          .from('leaderboards')
+          .insert([
+            { 
+              game_id: game, 
+              user_address: address, 
+              score: score,
+              tx_hash: hash // Store tx_hash to verify onchain presence
+            }
+          ]);
+        
+        if (error) throw error;
 
         toast.success("Score Logged Onchain!", { id: 'game-score' });
       } catch (err) {
@@ -160,7 +160,24 @@ function MainApp() {
         }, 2000);
       }
     } else {
-      isLoggingRef.current[game] = false;
+      // Guest or disconnected user - just save to Supabase
+      try {
+        const { error } = await supabase
+          .from('leaderboards')
+          .insert([
+            { 
+              game_id: game, 
+              user_address: 'Guest', 
+              score: score 
+            }
+          ]);
+        
+        if (error) throw error;
+      } catch (error) {
+        console.error("Error saving to leaderboard:", error);
+      } finally {
+        isLoggingRef.current[game] = false;
+      }
     }
   };
 
@@ -262,10 +279,10 @@ function MainApp() {
         
         const uniqueUsers = new Set(allAddresses).size;
 
-        const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true });
-        const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true });
-        const { count: deployCount } = await supabase.from('deployments').select('*', { count: 'exact', head: true });
-        const { count: checkinCount } = await supabase.from('checkins').select('*', { count: 'exact', head: true });
+        const { count: gameCount } = await supabase.from('leaderboards').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null);
+        const { count: messageCount } = await supabase.from('messages').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null);
+        const { count: deployCount } = await supabase.from('deployments').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null);
+        const { count: checkinCount } = await supabase.from('checkins').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null);
 
         setGlobalStats({
           users: uniqueUsers || 0,

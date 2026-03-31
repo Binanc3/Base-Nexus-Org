@@ -1,16 +1,38 @@
 import { useState, useEffect, useCallback } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { ArrowDownUp, Settings, Info, Loader2, History, ExternalLink, Clock, RefreshCw, TrendingUp, Zap, ChevronRight, Star, Repeat } from 'lucide-react';
-import { LiFiWidget, useWidgetEvents, WidgetEvent } from '@lifi/widget';
-import { useAccount, usePublicClient } from 'wagmi';
-import { formatEther } from 'viem';
+import { ArrowDownUp, Settings, Info, Loader2, History, ExternalLink, Clock, RefreshCw, TrendingUp, Zap, ChevronRight, Star, Repeat, ArrowDown, Wallet, Shield } from 'lucide-react';
+import { createConfig, getQuote } from '@lifi/sdk';
+import { useAccount, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi';
+import { formatUnits, parseUnits, formatEther } from 'viem';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { BASE_BUILDER_CODE, appendBuilderCode } from '../../lib/wagmi';
+import { toast } from 'sonner';
+
+createConfig({
+  integrator: 'BaseNexus'
+});
+
+const COMMON_TOKENS = [
+  { symbol: 'ETH', name: 'Ethereum', address: '0x0000000000000000000000000000000000000000', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png' },
+  { symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', chainId: 8453, decimals: 6, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png' },
+  { symbol: 'WETH', name: 'Wrapped Ether', address: '0x4200000000000000000000000000000000000006', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png' },
+  { symbol: 'DEGEN', name: 'Degen', address: '0x4ed4E28C58d899194b42fE4889100d5796559ee1', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x4ed4e28c58d899194b42fe4889100d5796559ee1.png' },
+];
 
 export function SwapSection() {
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const publicClient = usePublicClient();
-  const widgetEvents = useWidgetEvents();
+  const { sendTransactionAsync } = useSendTransaction();
+  const { switchChainAsync } = useSwitchChain();
+  
+  const [fromToken, setFromToken] = useState(COMMON_TOKENS[0]);
+  const [toToken, setToToken] = useState(COMMON_TOKENS[1]);
+  const [fromAmount, setFromAmount] = useState('');
+  const [quote, setQuote] = useState<any>(null);
+  const [isQuoting, setIsQuoting] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  
   const [history, setHistory] = useState<{ hash: string; from: string; to: string; amount: string; timestamp: number; gasUsed?: string }[]>([]);
   const [stats, setStats] = useState({ totalVolume: '0', totalGas: '0', swapCount: 0 });
   const [isSyncing, setIsSyncing] = useState(false);
@@ -26,78 +48,117 @@ export function SwapSection() {
     if (address) loadLocalData();
   }, [address, loadLocalData]);
 
-  useEffect(() => {
-    const onRouteExecutionCompleted = (route: any) => {
-      const lastStep = route.steps[route.steps.length - 1];
-      const newSwap = {
-        hash: lastStep.execution?.process[lastStep.execution.process.length - 1].txHash || '0x...',
-        from: route.fromToken.symbol,
-        to: route.toToken.symbol,
-        amount: `${Number(route.toAmountMin).toFixed(4)} ${route.toToken.symbol}`,
-        timestamp: Date.now(),
-        gasUsed: lastStep.execution?.gasAmountUsed ? formatEther(BigInt(lastStep.execution.gasAmountUsed)) : '0.001'
-      };
-      
-      setHistory(prev => {
-        const updated = [newSwap, ...prev].slice(0, 50);
-        localStorage.setItem(`swap_history_${address}`, JSON.stringify(updated));
-        return updated;
+  const fetchQuote = useCallback(async () => {
+    if (!fromAmount || isNaN(Number(fromAmount)) || Number(fromAmount) <= 0) {
+      setQuote(null);
+      return;
+    }
+
+    setIsQuoting(true);
+    try {
+      const amount = parseUnits(fromAmount, fromToken.decimals).toString();
+      const result = await getQuote({
+        fromChain: fromToken.chainId,
+        toChain: toToken.chainId,
+        fromToken: fromToken.address,
+        toToken: toToken.address,
+        fromAddress: address || '0x0000000000000000000000000000000000000000',
+        fromAmount: amount,
       });
+      setQuote(result);
+    } catch (error) {
+      console.error('Quote error:', error);
+      setQuote(null);
+    } finally {
+      setIsQuoting(false);
+    }
+  }, [fromAmount, fromToken, toToken, address]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchQuote();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [fetchQuote]);
+
+  const handleSwap = async () => {
+    if (!quote || !address) return;
+    
+    setIsSwapping(true);
+    const toastId = toast.loading("Preparing swap...");
+    
+    try {
+      // 1. Ensure correct chain
+      if (chainId !== fromToken.chainId) {
+        toast.loading("Switching network...", { id: toastId });
+        await switchChainAsync({ chainId: fromToken.chainId });
+      }
+
+      // 2. Execute transaction with builder code attribution
+      toast.loading("Confirm swap in wallet...", { id: toastId });
       
-      setStats(prev => {
-        const usdValue = parseFloat(route.toAmountUSD || '0');
-        const rawAmount = parseFloat(route.toAmount);
-        const decimals = route.toToken.decimals || 18;
-        const normalizedAmount = rawAmount / Math.pow(10, decimals);
+      // Append builder code to transaction data
+      const txData = quote.transactionRequest.data || '0x';
+      const finalData = appendBuilderCode(txData);
+
+      const hash = await sendTransactionAsync({
+        to: quote.transactionRequest.to as `0x${string}`,
+        data: finalData,
+        value: quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n,
+      });
+
+      toast.loading("Waiting for confirmation...", { id: toastId });
+      
+      if (publicClient) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
         
-        // LiFi sometimes returns raw amount as USD (common bug with some providers)
-        // If USD value is more than 1000x the normalized amount, it's likely raw
-        // We also check if the USD value is suspiciously high for a single swap
-        let actualUsd = usdValue;
-        if (usdValue > 0 && normalizedAmount > 0) {
-          const ratio = usdValue / normalizedAmount;
-          // If the ratio is exactly a power of 10 (like 10^6 or 10^18), it's definitely raw
-          const isPowerOf10 = Math.abs(Math.log10(ratio) - Math.round(Math.log10(ratio))) < 0.0001;
-          
-          if (isPowerOf10 || ratio > 10000) {
-            actualUsd = normalizedAmount;
-          }
-        } else if (usdValue === 0 && normalizedAmount > 0) {
-          // Fallback if USD value is missing
-          actualUsd = normalizedAmount;
+        if (receipt.status === 'reverted') {
+          throw new Error("Transaction reverted onchain");
         }
 
-        const newStats = {
-          totalVolume: (parseFloat(prev.totalVolume) + actualUsd).toString(),
-          totalGas: (parseFloat(prev.totalGas) + parseFloat(newSwap.gasUsed)).toString(),
-          swapCount: prev.swapCount + 1
+        // 3. Update history and stats
+        const newSwap = {
+          hash,
+          from: fromToken.symbol,
+          to: toToken.symbol,
+          amount: `${Number(formatUnits(BigInt(quote.estimate.toAmount), toToken.decimals)).toFixed(4)} ${toToken.symbol}`,
+          timestamp: Date.now(),
+          gasUsed: receipt.gasUsed ? formatEther(receipt.gasUsed * receipt.effectiveGasPrice) : '0.001'
         };
-        localStorage.setItem(`swap_stats_${address}`, JSON.stringify(newStats));
-        return newStats;
-      });
-    };
 
-    widgetEvents.on(WidgetEvent.RouteExecutionCompleted, onRouteExecutionCompleted);
-    return () => {
-      widgetEvents.off(WidgetEvent.RouteExecutionCompleted, onRouteExecutionCompleted);
-    };
-  }, [widgetEvents, address]);
+        setHistory(prev => {
+          const updated = [newSwap, ...prev].slice(0, 50);
+          localStorage.setItem(`swap_history_${address}`, JSON.stringify(updated));
+          return updated;
+        });
+
+        setStats(prev => {
+          const usdValue = parseFloat(quote.estimate.toAmountUSD || '0');
+          const newStats = {
+            totalVolume: (parseFloat(prev.totalVolume) + usdValue).toString(),
+            totalGas: (parseFloat(prev.totalGas) + parseFloat(newSwap.gasUsed)).toString(),
+            swapCount: prev.swapCount + 1
+          };
+          localStorage.setItem(`swap_stats_${address}`, JSON.stringify(newStats));
+          return newStats;
+        });
+
+        toast.success("Swap successful!", { id: toastId });
+      }
+    } catch (error: any) {
+      console.error('Swap failed:', error);
+      toast.error(error.message || "Swap failed", { id: toastId });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
 
   const syncHistory = async () => {
     if (!address || !publicClient) return;
     setIsSyncing(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const newStats = history.reduce((acc, item) => {
-        acc.totalVolume = (parseFloat(acc.totalVolume) + parseFloat(item.amount.split(' ')[0] || '0')).toString();
-        acc.totalGas = (parseFloat(acc.totalGas) + parseFloat(item.gasUsed || '0')).toString();
-        acc.swapCount += 1;
-        return acc;
-      }, { totalVolume: '0', totalGas: '0', swapCount: 0 });
-
-      setStats(newStats);
-      localStorage.setItem(`swap_stats_${address}`, JSON.stringify(newStats));
+      toast.success("History synced with Base");
     } catch (error) {
       console.error('Sync failed:', error);
     } finally {
@@ -150,13 +211,16 @@ export function SwapSection() {
         </div>
 
         <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}>
-          <GlassCard className="p-0 sm:p-4 min-h-[750px] relative overflow-hidden">
-            <div className="flex items-center justify-between p-6 pb-2">
+          <GlassCard className="p-6 min-h-[600px] relative overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
                   <Repeat className="w-6 h-6 text-white" />
                 </div>
-                <h2 className="text-xl font-bold text-white">Swap Assets</h2>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Swap Assets</h2>
+                  <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Builder Attribution Enabled</p>
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button 
@@ -170,47 +234,124 @@ export function SwapSection() {
                       setStats({ totalVolume: '0', totalGas: '0', swapCount: 0 });
                     }
                   }}
-                  title="Reset Stats"
                 >
                   <RefreshCw className="w-5 h-5" />
                 </Button>
                 <Button variant="ghost" className="p-2 hover:bg-white/5"><Settings className="w-5 h-5" /></Button>
-                <Button variant="ghost" className="p-2 hover:bg-white/5"><Info className="w-5 h-5" /></Button>
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-white/10 bg-black/40 p-1 sm:p-2 shadow-2xl overflow-hidden mx-2 sm:mx-4">
-              <LiFiWidget
-                integrator="BaseNexus"
-                config={{
-                  chains: {
-                    allow: [8453, 1, 10, 42161, 137] // Allow major chains for cross-chain swaps
-                  },
-                  fromChain: 8453,
-                  toChain: 8453,
-                  appearance: 'dark',
-                  theme: {
-                    palette: {
-                      primary: { main: '#3b82f6' },
-                      background: { paper: '#0f172a', default: 'transparent' }
-                    },
-                    shape: {
-                      borderRadius: 24,
-                      borderRadiusSecondary: 16
-                    }
-                  },
-                  sdkConfig: {
-                    routeOptions: {
-                      allowSwitchChain: true
-                    }
-                  }
-                }}
-              />
+            <div className="flex-1 flex flex-col gap-4 max-w-md mx-auto w-full">
+              {/* From Token */}
+              <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
+                <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
+                  <span>You Pay</span>
+                  <span>Balance: 0.00</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="number"
+                    value={fromAmount}
+                    onChange={(e) => setFromAmount(e.target.value)}
+                    placeholder="0.0"
+                    className="bg-transparent text-2xl font-bold text-white outline-none w-full"
+                  />
+                  <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors">
+                    <img src={fromToken.logoURI} alt={fromToken.symbol} className="w-6 h-6 rounded-full" />
+                    <span className="font-bold text-white">{fromToken.symbol}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Switch Button */}
+              <div className="flex justify-center -my-6 relative z-10">
+                <Button 
+                  variant="outline" 
+                  className="w-10 h-10 rounded-full bg-slate-900 border-white/10 p-0 hover:scale-110 transition-transform"
+                  onClick={() => {
+                    const temp = fromToken;
+                    setFromToken(toToken);
+                    setToToken(temp);
+                  }}
+                >
+                  <ArrowDown className="w-5 h-5 text-blue-400" />
+                </Button>
+              </div>
+
+              {/* To Token */}
+              <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
+                <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
+                  <span>You Receive</span>
+                  <span>Balance: 0.00</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-2xl font-bold text-white/60 w-full">
+                    {isQuoting ? (
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : quote ? (
+                      Number(formatUnits(BigInt(quote.estimate.toAmount), toToken.decimals)).toFixed(6)
+                    ) : (
+                      '0.0'
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors">
+                    <img src={toToken.logoURI} alt={toToken.symbol} className="w-6 h-6 rounded-full" />
+                    <span className="font-bold text-white">{toToken.symbol}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quote Info */}
+              {quote && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }} 
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 space-y-2 text-xs"
+                >
+                  <div className="flex justify-between text-white/60">
+                    <span>Rate</span>
+                    <span>1 {fromToken.symbol} = {(Number(quote.estimate.toAmount) / Number(quote.estimate.fromAmount)).toFixed(6)} {toToken.symbol}</span>
+                  </div>
+                  <div className="flex justify-between text-white/60">
+                    <span>Estimated Gas</span>
+                    <span>${Number(quote.estimate.gasCosts?.[0]?.amountUSD || '0').toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-white/60">
+                    <span>Price Impact</span>
+                    <span className={cn(Number(quote.estimate.feeCosts?.[0]?.percentage || '0') > 2 ? "text-red-400" : "text-green-400")}>
+                      {Number(quote.estimate.feeCosts?.[0]?.percentage || '0').toFixed(2)}%
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Action Button */}
+              <Button
+                className="w-full py-6 rounded-3xl text-lg font-bold bg-blue-600 hover:bg-blue-500 shadow-xl shadow-blue-500/20 mt-4"
+                disabled={!quote || isSwapping || !address}
+                onClick={handleSwap}
+              >
+                {isSwapping ? (
+                  <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Executing Swap...</>
+                ) : !address ? (
+                  <><Wallet className="w-5 h-5 mr-2" /> Connect Wallet</>
+                ) : quote ? (
+                  'Swap Now'
+                ) : (
+                  'Enter Amount'
+                )}
+              </Button>
             </div>
             
-            <p className="text-center text-[10px] text-white/20 mt-6 uppercase tracking-widest font-bold">
-              Optimized routing powered by Jumper & LI.FI
-            </p>
+            <div className="mt-auto pt-8 flex flex-col items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
+                <Shield className="w-3 h-3 text-green-400" />
+                <span className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Builder Attribution Active</span>
+              </div>
+              <p className="text-center text-[10px] text-white/20 uppercase tracking-widest font-bold">
+                Optimized routing powered by LI.FI SDK
+              </p>
+            </div>
           </GlassCard>
         </motion.div>
       </div>
@@ -304,8 +445,8 @@ export function SwapSection() {
               <h4 className="text-sm font-bold text-white">Ecosystem Power</h4>
             </div>
             <p className="text-xs text-white/50 leading-relaxed">
-              BaseNexus uses LI.FI to find the best routes across the Base ecosystem. 
-              Every swap is optimized for speed and gas efficiency.
+              BaseNexus uses LI.FI SDK to find the best routes across the Base ecosystem. 
+              Every swap is optimized for speed and gas efficiency with custom builder attribution.
             </p>
           </GlassCard>
         </motion.div>
