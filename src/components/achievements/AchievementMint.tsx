@@ -111,7 +111,7 @@ export function AchievementMint({ stats, address: propAddress }: { stats: any; a
       const hash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${stringToHex(mintData).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: `0x${stringToHex(mintData).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });
 
       toast.loading("Securing NFT on Base...", { id: 'mint' });

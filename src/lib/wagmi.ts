@@ -14,7 +14,11 @@ export function formatBuilderCode(code: string): `0x${string}` {
   let isNumeric = false;
 
   if (isHex(code)) {
-    hexCode = code as `0x${string}`;
+    // If it's already a hex string, we need to ensure it's exactly 6 bytes before adding suffix
+    // We strip 0x, take the last 12 chars (6 bytes), and add 0x back
+    const cleanHex = code.replace('0x', '');
+    const truncatedHex = cleanHex.length > 12 ? cleanHex.slice(-12) : cleanHex;
+    hexCode = `0x${truncatedHex}` as `0x${string}`;
     isNumeric = true;
   } else if (/^\d+$/.test(code)) {
     // If it's a decimal string, convert to hex
@@ -30,6 +34,7 @@ export function formatBuilderCode(code: string): `0x${string}` {
   
   // Base Builder Attribution format: 8 bytes total (16 hex characters) ending in 8021
   // The data part is 6 bytes, and the suffix is 2 bytes (8021)
+  // pad will now work because we ensured hexCode is at most 6 bytes
   const padded = pad(hexCode, { size: 6, dir: isNumeric ? 'left' : 'right' });
   // padded is 0x + 12 hex chars (6 bytes)
   // We take the 6 bytes and append 8021 (2 bytes) for a total of 8 bytes

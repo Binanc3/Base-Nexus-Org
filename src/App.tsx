@@ -142,7 +142,7 @@ function MainApp() {
         const hash = await sendTransactionAsync({
           to: address, // Send to self to log data with attribution
           value: 0n,
-          data: `${stringToHex(`SCORE:${score}`).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+          data: `0x${stringToHex(`SCORE:${score}`).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
         });
 
         if (publicClient) {

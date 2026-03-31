@@ -150,7 +150,7 @@ export function SwapSection() {
         </div>
 
         <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}>
-          <GlassCard className="p-0 sm:p-4 min-h-[650px] relative overflow-hidden">
+          <GlassCard className="p-0 sm:p-4 min-h-[750px] relative overflow-hidden">
             <div className="flex items-center justify-between p-6 pb-2">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">

@@ -58,7 +58,7 @@ export function OnchainAI() {
       const hash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${stringToHex(summary).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: `0x${stringToHex(summary).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });
 
       toast.loading("Waiting for confirmation...", { id: 'ai-log' });

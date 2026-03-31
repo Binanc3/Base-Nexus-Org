@@ -87,7 +87,7 @@ export function BaseWall() {
       const txHash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${stringToHex(newMessage.trim()).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: `0x${stringToHex(newMessage.trim()).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });
 
       if (!txHash) throw new Error("Transaction failed or was rejected");

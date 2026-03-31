@@ -111,7 +111,7 @@ export function CheckIn() {
       const hash = await sendTransactionAsync({
         to: address,
         value: 0n,
-        data: `${stringToHex(type).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
+        data: `0x${stringToHex(type).replace('0x', '')}${BASE_BUILDER_CODE.replace('0x', '')}` as `0x${string}`,
       });
 
       toast.loading("Waiting for confirmation...", { id: 'checkin' });
