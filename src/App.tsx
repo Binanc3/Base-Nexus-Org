@@ -473,7 +473,7 @@ function MainApp() {
       >
         <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-blue-600/5 blur-[150px] pointer-events-none" />
         
-        <header className="flex justify-between items-center mb-8 lg:mb-12 relative z-10 max-w-7xl mx-auto">
+        <header className="sticky top-0 z-20 bg-gradient-to-b from-black/80 to-black/0 backdrop-blur-md p-4 -mx-4 lg:mx-0 mb-6 flex justify-between items-center max-w-7xl mx-auto">
           <div>
             <h2 className="text-2xl lg:text-3xl font-bold tracking-tight">
               {tabs.find(t => t.id === activeTab)?.label}
