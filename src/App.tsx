@@ -70,27 +70,43 @@ function MainApp() {
     document.body.style.overscrollBehavior = 'none';
     document.documentElement.style.overscrollBehavior = 'none';
 
+    const scrollTimeoutRef = useRef<NodeJS.Timeout>();
     // Prevent pull-to-refresh via touch events on the document
     let startY = 0;
     const handleTouchStart = (e: TouchEvent) => {
       startY = e.touches[0].pageY;
     };
 
-    const handleTouchMove = (e: TouchEvent) => {
-      const y = e.touches[0].pageY;
-      const main = mainRef.current;
-      const scrollTop = main ? main.scrollTop : (window.scrollY || document.documentElement.scrollTop);
+   const handleTouchMove = (e: TouchEvent) => {
+  // Throttle the event
+  if (scrollTimeoutRef.current) {
+    return;
+  }
 
-      // If at the top and pulling down, prevent default (which triggers reload)
-      if (scrollTop <= 0 && y > startY) {
-        if (e.cancelable) {
-          e.preventDefault();
-        }
-      }
+  const y = e.touches[0].pageY;
+  const main = mainRef.current;
+  const scrollTop = main ? main.scrollTop : (window.scrollY || document.documentElement.scrollTop);
+
+  // Only prevent if at top AND pulling down
+  if (scrollTop <= 0 && y > startY && (y - startY) > 20) {
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }
+
+  // Throttle
+  scrollTimeoutRef.current = setTimeout(() => {
+    scrollTimeoutRef.current = undefined;
+  }, 200);
+};
     };
 
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    if (scrollTimeoutRef.current) {
+  clearTimeout(scrollTimeoutRef.current);
+    }
 
     return () => {
       document.body.style.overscrollBehavior = 'auto';
