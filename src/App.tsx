@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAccount, useConnect, useDisconnect, useSendTransaction, usePublicClient } from 'wagmi';
-import sdk, { type Context } from '@farcaster/miniapp-sdk';
+import sdk from '@farcaster/miniapp-sdk';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
-import { SlicingGame, EndlessRunner, NeonDefender } from './components/games/GameHub';
+import { SlicingGame, EndlessRunner } from './components/games/GameHub';
 import { SwapSection } from './components/swap/SwapSection';
 import { OnchainAI } from './components/ai/OnchainAI';
 import { ContractDeployer } from './components/deployer/ContractDeployer';
@@ -12,13 +12,13 @@ import { ProfileSection } from './components/profile/ProfileSection';
 import { BaseWall } from './components/social/BaseWall';
 import { cn } from '@/src/lib/utils';
 import { createLogData } from './lib/wagmi';
-import { 
-  LayoutDashboard, Gamepad2, Repeat, MessageSquare, 
-  Code2, CheckCircle2, Wallet, LogOut, ExternalLink, 
-  Shield, Trophy, User, Sparkles, Globe, Zap, 
-  Activity, Menu, X 
+import {
+  LayoutDashboard, Gamepad2, Repeat, MessageSquare,
+  Code2, CheckCircle2, Wallet, LogOut,
+  Shield, Trophy, User, Sparkles, Globe, Zap,
+  Activity, Menu, X
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion'; // Using standard framer-motion naming
+import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import { supabase } from './supabase';
 
@@ -28,7 +28,7 @@ function MainApp() {
   const { disconnect } = useDisconnect();
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
-  
+
   const mainRef = useRef<HTMLElement>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
@@ -51,7 +51,6 @@ function MainApp() {
     };
     init();
 
-    // Prevent pull-to-refresh and system overscroll
     document.body.style.overflow = 'hidden';
     document.body.style.overscrollBehavior = 'none';
 
@@ -64,7 +63,6 @@ function MainApp() {
   useEffect(() => {
     const refreshData = async () => {
       try {
-        // Fetch recent actions (optimized query)
         const [{ data: checkins }, { data: deployments }, { data: scores }] = await Promise.all([
           supabase.from('checkins').select('*').order('created_at', { ascending: false }).limit(3),
           supabase.from('deployments').select('*').order('created_at', { ascending: false }).limit(3),
@@ -79,9 +77,8 @@ function MainApp() {
 
         setRecentActions(combined);
 
-        // Fetch counts only (prevents downloading massive user lists)
-        const [usersCount, actionsCount, gameCount, msgCount] = await Promise.all([
-          supabase.rpc('get_unique_user_count'), // Assume RPC for efficiency
+        const [usersCount, , gameCount, msgCount] = await Promise.all([
+          supabase.rpc('get_unique_user_count'),
           supabase.from('leaderboards').select('*', { count: 'estimated', head: true }),
           supabase.from('leaderboards').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null),
           supabase.from('messages').select('*', { count: 'exact', head: true }).not('tx_hash', 'is', null)
@@ -108,7 +105,7 @@ function MainApp() {
   const handleGameComplete = async (game: string, score: number) => {
     if (isLoggingRef.current) return;
     isLoggingRef.current = true;
-    
+
     setLastScore({ game, score });
     const toastId = 'game-score';
 
@@ -116,14 +113,13 @@ function MainApp() {
       try {
         toast.loading("Securing score on Base...", { id: toastId });
         const txData = createLogData(`SCORE:${game}:${score}`);
-        
-        // Dynamic gas estimation with safety buffer
+
         const gas = await publicClient?.estimateGas({
           account: address,
           to: address,
           data: txData,
           value: 0n,
-        }).catch(() => 35000n); // Fallback
+        }).catch(() => 35000n);
 
         const hash = await sendTransactionAsync({
           to: address,
@@ -146,7 +142,7 @@ function MainApp() {
     } else {
       await supabase.from('leaderboards').insert([{ game_id: game, user_address: 'Guest', score }]);
     }
-    
+
     setTimeout(() => { isLoggingRef.current = false; }, 1000);
   };
 
@@ -219,11 +215,11 @@ function MainApp() {
         <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 bg-white/5 rounded-lg">{mobileMenuOpen ? <X /> : <Menu />}</button>
       </div>
 
-      <main className="flex-1 overflow-y-auto relative p-4 lg:p-8 pt-20 lg:pt-8 overscroll-none">
+      <main ref={mainRef} className="flex-1 overflow-y-auto relative p-4 lg:p-8 pt-20 lg:pt-8 overscroll-none">
         <div className="max-w-7xl mx-auto relative z-10">
           <AnimatePresence mode="wait">
             <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-              
+
               {activeTab === 'dashboard' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
