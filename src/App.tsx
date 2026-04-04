@@ -10,8 +10,7 @@ import { ContractDeployer } from './components/deployer/ContractDeployer';
 import { CheckIn } from './components/checkin/CheckIn';
 import { ProfileSection } from './components/profile/ProfileSection';
 import { cn } from '@/src/lib/utils';
-import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from './lib/wagmi';
+import { createLogData } from './lib/wagmi';
 import { 
   LayoutDashboard, 
   Gamepad2, 
@@ -28,7 +27,9 @@ import {
   Sparkles,
   Globe,
   Zap,
-  Activity
+  Activity,
+  Menu,
+  X
 } from 'lucide-react';
 import { BaseWall } from './components/social/BaseWall';
 import { motion, AnimatePresence } from 'motion/react';
@@ -43,11 +44,13 @@ function MainApp() {
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
   const mainRef = useRef<HTMLElement>(null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout>();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [lastScore, setLastScore] = useState<{ game: string; score: number } | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [isMiniApp, setIsMiniApp] = useState(false);
   const [context, setContext] = useState<any>();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -70,49 +73,46 @@ function MainApp() {
     document.body.style.overscrollBehavior = 'none';
     document.documentElement.style.overscrollBehavior = 'none';
 
-    const scrollTimeoutRef = useRef<NodeJS.Timeout>();
     // Prevent pull-to-refresh via touch events on the document
     let startY = 0;
     const handleTouchStart = (e: TouchEvent) => {
       startY = e.touches[0].pageY;
     };
 
-   const handleTouchMove = (e: TouchEvent) => {
-  // Throttle the event
-  if (scrollTimeoutRef.current) {
-    return;
-  }
+    const handleTouchMove = (e: TouchEvent) => {
+      // Throttle the event
+      if (scrollTimeoutRef.current) {
+        return;
+      }
 
-  const y = e.touches[0].pageY;
-  const main = mainRef.current;
-  const scrollTop = main ? main.scrollTop : (window.scrollY || document.documentElement.scrollTop);
+      const y = e.touches[0].pageY;
+      const main = mainRef.current;
+      const scrollTop = main ? main.scrollTop : (window.scrollY || document.documentElement.scrollTop);
 
-  // Only prevent if at top AND pulling down
-  if (scrollTop <= 0 && y > startY && (y - startY) > 20) {
-    if (e.cancelable) {
-      e.preventDefault();
-    }
-  }
+      // Only prevent if at top AND pulling down
+      if (scrollTop <= 0 && y > startY && (y - startY) > 20) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
 
-  // Throttle
-  scrollTimeoutRef.current = setTimeout(() => {
-    scrollTimeoutRef.current = undefined;
-  }, 200);
-};
+      // Throttle
+      scrollTimeoutRef.current = setTimeout(() => {
+        scrollTimeoutRef.current = undefined;
+      }, 200);
     };
 
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-    if (scrollTimeoutRef.current) {
-  clearTimeout(scrollTimeoutRef.current);
-    }
 
     return () => {
       document.body.style.overscrollBehavior = 'auto';
       document.documentElement.style.overscrollBehavior = 'auto';
       document.removeEventListener('touchstart', handleTouchStart);
       document.removeEventListener('touchmove', handleTouchMove);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
     };
   }, []); // Run once on mount
 
@@ -127,7 +127,6 @@ function MainApp() {
 
   const handleGameComplete = async (game: string, score: number) => {
     // Prevent double logging for the same game session
-    const sessionKey = `${game}-${score}-${Date.now()}`;
     if (isLoggingRef.current[game]) return;
     isLoggingRef.current[game] = true;
 
@@ -138,16 +137,31 @@ function MainApp() {
       try {
         toast.loading("Logging score onchain...", { id: 'game-score' });
         
+        // Create proper log data with builder code
+        const txData = createLogData(`SCORE:${score}`);
+        
         const hash = await sendTransactionAsync({
-          to: ONCHAIN_LOG_ADDRESS, // Send to dead address to log data with attribution
+          to: address, // Send to self, not dead address
           value: 0n,
-          data: appendBuilderCode(stringToHex(`SCORE:${score}`)),
+          data: txData,
+          gas: 21000n + 4n * BigInt(txData.length / 2),
         });
 
+        if (!hash) {
+          throw new Error("Transaction was not submitted to the network");
+        }
+
         if (publicClient) {
-          const receipt = await publicClient.waitForTransactionReceipt({ hash });
-          if (receipt.status === 'reverted') {
-            throw new Error("Transaction reverted onchain");
+          try {
+            const receipt = await publicClient.waitForTransactionReceipt({ 
+              hash,
+              timeout: 60_000 
+            });
+            if (receipt.status === 'reverted') {
+              throw new Error("Transaction reverted onchain");
+            }
+          } catch (waitErr) {
+            console.warn("Receipt wait timeout, but tx may succeed:", waitErr);
           }
         }
 
@@ -159,7 +173,7 @@ function MainApp() {
               game_id: game, 
               user_address: address, 
               score: score,
-              tx_hash: hash // Store tx_hash to verify onchain presence
+              tx_hash: hash
             }
           ]);
         
@@ -168,7 +182,11 @@ function MainApp() {
         toast.success("Score Logged Onchain!", { id: 'game-score' });
       } catch (err) {
         console.error("Onchain score logging failed:", err);
-        toast.error("Onchain Logging Failed", { id: 'game-score' });
+        const errorMsg = err instanceof Error ? err.message.substring(0, 80) : "Unknown error";
+        toast.error("Onchain Logging Failed", { 
+          id: 'game-score',
+          description: errorMsg
+        });
       } finally {
         // Allow logging again after a short delay or next game
         setTimeout(() => {
@@ -247,28 +265,12 @@ function MainApp() {
     return () => clearInterval(interval);
   }, []);
 
-  const [hasPeeked, setHasPeeked] = useState(false);
   const [globalStats, setGlobalStats] = useState({
     users: 0,
     actions: 0,
     games: 0,
     messages: 0
   });
-
-  useEffect(() => {
-    if (!hasPeeked && isMiniApp) {
-      const nav = document.querySelector('.bottom-nav-scroll');
-      if (nav) {
-        setTimeout(() => {
-          nav.scrollTo({ left: 40, behavior: 'smooth' });
-          setTimeout(() => {
-            nav.scrollTo({ left: 0, behavior: 'smooth' });
-            setHasPeeked(true);
-          }, 800);
-        }, 1000);
-      }
-    }
-  }, [isMiniApp, hasPeeked]);
 
   useEffect(() => {
     const fetchGlobalStats = async () => {
@@ -432,64 +434,111 @@ function MainApp() {
         </div>
       </aside>
 
-      {/* Bottom Nav - Mobile */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
-        <nav 
-          className="bg-black/80 backdrop-blur-3xl border-t border-white/10 px-6 py-4 flex justify-start items-center gap-10 overflow-x-auto no-scrollbar mask-fade-right bottom-nav-scroll"
-          onScroll={(e) => {
-            const target = e.currentTarget;
-            if (target.scrollLeft > 20) {
-              target.classList.remove('mask-fade-right');
-            } else {
-              target.classList.add('mask-fade-right');
-            }
-          }}
-        >
-          {tabs.map((tab, index) => (
-            <motion.button
-              key={tab.id}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.05 }}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex flex-col items-center gap-1.5 transition-all shrink-0",
-                activeTab === tab.id ? "text-blue-400 scale-110" : "text-white/40 hover:text-white/60"
-              )}
-            >
-              <tab.icon className="w-5 h-5" />
-              <span className="text-[10px] font-bold tracking-tight uppercase whitespace-nowrap">{tab.label}</span>
-              {activeTab === tab.id && (
-                <motion.div 
-                  layoutId="activeTab"
-                  className="w-1 h-1 bg-blue-400 rounded-full mt-0.5"
-                />
-              )}
-            </motion.button>
-          ))}
-        </nav>
-        {/* Scroll Hint */}
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none flex flex-col items-center gap-1 lg:hidden">
-          <motion.div 
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: [0, 1, 0], x: [10, 0, 10] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="flex items-center gap-1"
-          >
-            <span className="text-[8px] font-bold text-blue-400 uppercase tracking-tighter">More</span>
-            <div className="w-1 h-1 bg-blue-400 rounded-full blur-[1px]" />
-          </motion.div>
+      {/* Mobile Hamburger Menu */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/10 px-4 py-3 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5" />
+          </div>
+          <span className="font-bold text-sm">BaseNexus</span>
         </div>
+        <button 
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="p-2 hover:bg-white/10 rounded-lg transition-all"
+        >
+          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
       </div>
+
+      {/* Mobile Menu Dropdown */}
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="lg:hidden fixed top-14 left-0 right-0 z-40 bg-black/95 backdrop-blur-md border-b border-white/10 shadow-2xl"
+          >
+            <nav className="flex flex-col p-4 space-y-2 max-h-[calc(100dvh-60px)] overflow-y-auto">
+              {tabs.map((tab) => {
+                const IconComponent = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
+                      activeTab === tab.id 
+                        ? "bg-blue-600 text-white" 
+                        : "text-white/60 hover:bg-white/5 hover:text-white"
+                    )}
+                  >
+                    <IconComponent className="w-5 h-5" />
+                    <span className="font-medium text-left flex-1">{tab.label}</span>
+                  </button>
+                );
+              })}
+              
+              {isMiniApp && (
+                <button
+                  onClick={() => {
+                    handleCloseApp();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-400/10 transition-all mt-4"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span className="font-medium text-left flex-1">Close App</span>
+                </button>
+              )}
+
+              <div className="pt-4 border-t border-white/10 mt-4">
+                {isConnected ? (
+                  <>
+                    <div className="px-4 py-3 mb-2">
+                      <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Wallet</p>
+                      <p className="text-xs font-mono truncate text-white/80">{address}</p>
+                    </div>
+                    <Button 
+                      variant="outline"
+                      className="w-full text-xs"
+                      onClick={() => {
+                        disconnect();
+                        setMobileMenuOpen(false);
+                      }}
+                    >
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button 
+                    onClick={() => {
+                      setShowConnectModal(true);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full py-3 flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Connect Wallet
+                  </Button>
+                )}
+              </div>
+            </nav>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
       <main 
         ref={mainRef}
-        className="flex-1 p-4 lg:p-8 overflow-y-auto relative pb-24 lg:pb-8 overscroll-none touch-pan-y"
+        className="flex-1 overflow-y-auto relative lg:p-8 p-4 pt-20 lg:pt-8 pb-4 lg:pb-8 overscroll-none touch-pan-y"
       >
         <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-blue-600/5 blur-[150px] pointer-events-none" />
         
-        <header className="sticky top-0 z-20 bg-gradient-to-b from-black/80 to-black/0 backdrop-blur-md p-4 -mx-4 lg:mx-0 mb-6 flex justify-between items-center max-w-7xl mx-auto">
+        <header className="sticky top-0 z-20 bg-gradient-to-b from-black/80 to-black/0 backdrop-blur-md p-4 -mx-4 lg:mx-0 mb-6 flex justify-between items-center max-w-7xl mx-auto lg:-mt-8">
           <div>
             <h2 className="text-2xl lg:text-3xl font-bold tracking-tight">
               {tabs.find(t => t.id === activeTab)?.label}
