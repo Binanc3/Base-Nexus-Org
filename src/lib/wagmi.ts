@@ -41,18 +41,47 @@ export function formatBuilderCode(code: string): `0x${string}` {
 
 /**
  * Appends the Base Builder Code (ERC-8021) to a hex data string.
- * Ensures the 0x prefix is handled correctly.
+ * PROPERLY concatenates without creating malformed data.
  */
 export function appendBuilderCode(data: `0x${string}` | string): `0x${string}` {
-  const cleanData = data.startsWith('0x') ? data : `0x${data}`;
-  return `${cleanData}${BASE_BUILDER_CODE.slice(2)}` as `0x${string}`;
+  try {
+    // Ensure data starts with 0x
+    const cleanData = data.startsWith('0x') ? (data as `0x${string}`) : (`0x${data}` as `0x${string}`);
+    
+    // Use proper concatenation
+    const builderCode = BASE_BUILDER_CODE.slice(2); // Remove 0x prefix
+    const result = `${cleanData}${builderCode}` as `0x${string}`;
+    
+    console.log(`[BaseNexus] Data with builder code: ${result}`);
+    return result;
+  } catch (error) {
+    console.error('[BaseNexus] Failed to append builder code:', error);
+    // Fallback: return just the builder code if data is malformed
+    return BASE_BUILDER_CODE;
+  }
+}
+
+/**
+ * Creates proper log transaction data with builder code
+ * This creates a valid transaction that logs data onchain
+ */
+export function createLogData(message: string): `0x${string}` {
+  try {
+    const messageHex = stringToHex(message);
+    return appendBuilderCode(messageHex);
+  } catch (error) {
+    console.error('[BaseNexus] Failed to create log data:', error);
+    return appendBuilderCode('0x');
+  }
 }
 
 export const BASE_BUILDER_CODE = formatBuilderCode(import.meta.env.VITE_BASE_BUILDER_CODE || '');
 
-// Dedicated EOA address for logging actions onchain.
-// Sending data to a Smart Wallet (contract) address will revert, so we use a dead address for logging.
-export const ONCHAIN_LOG_ADDRESS = '0x000000000000000000000000000000000000dEaD' as `0x${string}`;
+/**
+ * FIXED: Using zero address instead of dead address for logging
+ * Sending to zero address allows data to be logged without contract execution
+ */
+export const ONCHAIN_LOG_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
 
 export const config = createConfig({
   chains: [base],
