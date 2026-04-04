@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { MessageSquare, Send, Loader2, User, Clock, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
@@ -21,15 +21,15 @@ export function BaseWall() {
   const { address, isConnected } = useAccount();
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isPosting, setIsPosting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchMessages = async () => {
-    setIsLoading(true);
-    setError(null);
+  // Optimized fetch to prevent duplicates and handle state cleanly
+  const fetchMessages = useCallback(async () => {
     try {
       const { data, error: supabaseError } = await supabase
         .from('messages')
@@ -38,14 +38,16 @@ export function BaseWall() {
         .limit(50);
 
       if (supabaseError) throw supabaseError;
+      
       setMessages(data || []);
+      setError(null);
     } catch (err) {
       console.error("Error fetching messages:", err);
-      setError("Failed to load messages. Please check your connection.");
+      setError("Failed to load messages.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchMessages();
@@ -57,42 +59,164 @@ export function BaseWall() {
         event: 'INSERT', 
         schema: 'public', 
         table: 'messages' 
-      }, () => {
-        fetchMessages();
+      }, (payload) => {
+        // Optimistically add the new message if it's not already in state
+        const newMessage = payload.new as Message;
+        setMessages((prev) => {
+          if (prev.some(m => m.id === newMessage.id)) return prev;
+          return [newMessage, ...prev].slice(0, 50);
+        });
       })
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.error('Real-time subscription error');
-          setError("Real-time updates may be unavailable.");
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [fetchMessages]);
 
   const handlePost = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Basic validation
     if (!address || !newMessage.trim() || isPosting || !isConnected) {
-      if (!isConnected) {
-        toast.error("Wallet not connected", { description: "Please connect your wallet to post." });
-      }
+      if (!isConnected) toast.error("Connect wallet to post");
       return;
     }
 
     setIsPosting(true);
+    const toastId = toast.loading("Preparing transaction...");
+
     try {
-      // 1. Create transaction data with builder code
-      const txData = createLogData(newMessage.trim());
-      console.log('[BaseWall] Posting with data:', txData);
+      // 1. Prepare Hex Data
+      const hexData = createLogData(newMessage.trim()) as `0x${string}`;
       
-      toast.loading("Posting to Base Wall...", { id: 'wall-post' });
-      
-      // 2. Send transaction to self for data logging
+      // 2. Send Transaction
+      // Note: We let wagmi/provider estimate gas automatically for better reliability
       const txHash = await sendTransactionAsync({
-        to: address, // Send to self
+        to: address, 
         value: 0n,
-        data: txData,
-        gas: 21000n + 4n * BigInt(txData.length / 2), // Proper gas calculation
+        data: hexData,
       });
+
+      toast.loading("Verifying on Base...", { id: toastId });
+
+      // 3. Wait for Confirmation (Crucial for data integrity)
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
+      }
+
+      // 4. Insert into Supabase
+      const { error: insertError } = await supabase
+        .from('messages')
+        .insert([{
+          content: newMessage.trim(),
+          user_address: address,
+          user_id: address,
+          tx_hash: txHash,
+        }]);
+
+      if (insertError) throw insertError;
+
+      // 5. Success Cleanup
+      setNewMessage('');
+      toast.success("Message etched on the Wall!", { id: toastId });
+      
+    } catch (err: any) {
+      console.error("Post Error:", err);
+      const message = err.shortMessage || err.message || "Transaction failed";
+      toast.error(message, { id: toastId });
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-2xl mx-auto p-4 space-y-6">
+      <GlassCard className="p-6">
+        <form onSubmit={handlePost} className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <MessageSquare className="w-5 h-5 text-blue-400" />
+            <h2 className="text-xl font-bold text-white">Base Wall</h2>
+          </div>
+          
+          <textarea
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Leave your mark on the chain..."
+            className="w-full bg-zinc-950/50 border border-zinc-800 rounded-xl p-4 text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all resize-none h-24"
+            maxLength={280}
+          />
+
+          <div className="flex justify-between items-center">
+            <p className="text-[10px] text-zinc-500 uppercase font-mono">
+              {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Not Connected"}
+            </p>
+            <Button 
+              type="submit" 
+              disabled={isPosting || !newMessage.trim()}
+              className="px-6"
+            >
+              {isPosting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  Post <Send className="w-4 h-4 ml-2" />
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </GlassCard>
+
+      <div className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="w-8 h-8 animate-spin text-zinc-700" />
+          </div>
+        ) : error ? (
+          <p className="text-center text-red-400 py-4">{error}</p>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            {messages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                layout
+              >
+                <GlassCard className="p-4 border-zinc-800/50">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center">
+                        <User className="w-3 h-3 text-blue-400" />
+                      </div>
+                      <span className="text-[11px] font-mono text-zinc-400">
+                        {msg.user_address.slice(0, 6)}...{msg.user_address.slice(-4)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-zinc-200 text-sm leading-relaxed">{msg.content}</p>
+                  {msg.tx_hash && (
+                    <a 
+                      href={`https://basescan.org/tx/${msg.tx_hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1 text-[10px] text-blue-400/60 hover:text-blue-400 transition-colors"
+                    >
+                      View on BaseScan <ExternalLink className="w-2 h-2" />
+                    </a>
+                  )}
+                </GlassCard>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        )}
+      </div>
+    </div>
+  );
+}
