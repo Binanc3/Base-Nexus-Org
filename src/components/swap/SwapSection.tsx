@@ -1,146 +1,59 @@
-import { useState, useEffect, useCallback } from 'react';
-import { GlassCard, Button } from '../ui/GlassUI';
-import { ArrowDownUp, Settings, Info, Loader2, History, ExternalLink, Clock, RefreshCw, TrendingUp, Zap, ChevronRight, Star, Repeat, ArrowDown, Wallet, Shield, Search, Check } from 'lucide-react';
-import { createConfig, getQuote } from '@lifi/sdk';
-import { useAccount, usePublicClient, useSendTransaction, useSwitchChain, useBalance } from 'wagmi';
-import { formatUnits, parseUnits, formatEther } from 'viem';
-import { cn } from '@/src/lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
-import { BASE_BUILDER_CODE, appendBuilderCode } from '../../lib/wagmi';
-import { toast } from 'sonner';
-
-createConfig({
-  integrator: 'BaseNexus'
-});
-
-const COMMON_TOKENS = [
-  { symbol: 'ETH', name: 'Ethereum', address: '0x0000000000000000000000000000000000000000', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png' },
-  { symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', chainId: 8453, decimals: 6, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png' },
-  { symbol: 'WETH', name: 'Wrapped Ether', address: '0x4200000000000000000000000000000000000006', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png' },
-  { symbol: 'DEGEN', name: 'Degen', address: '0x4ed4E28C58d899194b42fE4889100d5796559ee1', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x4ed4e28c58d899194b42fe4889100d5796559ee1.png' },
-  { symbol: 'BRETT', name: 'Brett', address: '0x532f27101965dd16442E59d40670FaF5eBB142E4', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x532f27101965dd16442e59d40670faf5ebb142e4.png' },
-  { symbol: 'TOSHI', name: 'Toshi', address: '0xAC1Bd2486aAF3B5C0df39113f528363371461421', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0xac1bd2486aaf3b5c0df39113f528363371461421.png' },
-  { symbol: 'AERO', name: 'Aerodrome', address: '0x9401811A34416304426e5917220E96d2ECB64459', chainId: 8453, decimals: 18, logoURI: 'https://dd.dexscreener.com/ds-data/tokens/base/0x9401811a34416304426e5917220e96d2ecb64459.png' },
-  { symbol: 'DAI', name: 'Dai Stablecoin', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', chainId: 8453, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x6B175474E89094C44Da98b954EedeAC495271d0F/logo.png' },
-];
-
-export function SwapSection() {
-  const { address, chainId } = useAccount();
-  const publicClient = usePublicClient();
-  const { sendTransactionAsync } = useSendTransaction();
-  const { switchChainAsync } = useSwitchChain();
+const handleSwap = async () => {
+  if (!quote || !address) return;
   
-  const [fromToken, setFromToken] = useState(COMMON_TOKENS[0]);
-  const [toToken, setToToken] = useState(COMMON_TOKENS[1]);
-  const [fromAmount, setFromAmount] = useState('');
-  const [quote, setQuote] = useState<any>(null);
-  const [isQuoting, setIsQuoting] = useState(false);
-  const [isSwapping, setIsSwapping] = useState(false);
-  const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState<'from' | 'to' | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  setIsSwapping(true);
+  const toastId = toast.loading("Preparing swap...");
   
-  const filteredTokens = COMMON_TOKENS.filter(token => 
-    token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    token.address.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-  
-  const { data: fromBalance } = useBalance({
-    address,
-    token: fromToken.address === '0x0000000000000000000000000000000000000000' ? undefined : fromToken.address as `0x${string}`,
-    chainId: fromToken.chainId,
-  });
-
-  const { data: toBalance } = useBalance({
-    address,
-    token: toToken.address === '0x0000000000000000000000000000000000000000' ? undefined : toToken.address as `0x${string}`,
-    chainId: toToken.chainId,
-  });
-
-  const hasInsufficientBalance = fromBalance && fromAmount ? 
-    parseUnits(fromAmount, fromToken.decimals) > fromBalance.value : false;
-  
-  const [history, setHistory] = useState<{ hash: string; from: string; to: string; amount: string; timestamp: number; gasUsed?: string }[]>([]);
-  const [stats, setStats] = useState({ totalVolume: '0', totalGas: '0', swapCount: 0 });
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  const loadLocalData = useCallback(() => {
-    const savedHistory = localStorage.getItem(`swap_history_${address}`);
-    const savedStats = localStorage.getItem(`swap_stats_${address}`);
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
-    if (savedStats) setStats(JSON.parse(savedStats));
-  }, [address]);
-
-  useEffect(() => {
-    if (address) loadLocalData();
-  }, [address, loadLocalData]);
-
-  const fetchQuote = useCallback(async () => {
-    if (!fromAmount || isNaN(Number(fromAmount)) || Number(fromAmount) <= 0) {
-      setQuote(null);
-      return;
+  try {
+    // 1. Ensure correct chain
+    if (chainId !== fromToken.chainId) {
+      toast.loading("Switching network...", { id: toastId });
+      await switchChainAsync({ chainId: fromToken.chainId });
     }
 
-    setIsQuoting(true);
-    try {
-      const amount = parseUnits(fromAmount, fromToken.decimals).toString();
-      const result = await getQuote({
-        fromChain: fromToken.chainId,
-        toChain: toToken.chainId,
-        fromToken: fromToken.address,
-        toToken: toToken.address,
-        fromAddress: address || '0x0000000000000000000000000000000000000000',
-        fromAmount: amount,
-      });
-      setQuote(result);
-    } catch (error) {
-      console.error('Quote error:', error);
-      setQuote(null);
-    } finally {
-      setIsQuoting(false);
+    // 2. Execute transaction with proper data handling
+    toast.loading("Confirm swap in wallet...", { id: toastId });
+    
+    // Get the transaction data from quote
+    const txData = quote.transactionRequest.data as `0x${string}` || '0x';
+    
+    // Append builder code properly
+    const { appendBuilderCode } = await import('../../lib/wagmi');
+    const finalData = appendBuilderCode(txData);
+
+    console.log('[Swap] Sending with data:', finalData, 'to:', quote.transactionRequest.to);
+
+    // Calculate proper gas
+    const baseGas = 21000n; // Base gas for transaction
+    const dataGas = 4n * BigInt((finalData.length - 2) / 2); // 4 gas per byte of data
+    const estimatedGas = baseGas + dataGas + 50000n; // Add buffer for contract execution
+
+    const hash = await sendTransactionAsync({
+      to: quote.transactionRequest.to as `0x${string}`,
+      data: finalData,
+      value: quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n,
+      gas: estimatedGas,
+    });
+
+    if (!hash) {
+      throw new Error("Swap was not submitted to the network");
     }
-  }, [fromAmount, fromToken, toToken, address]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchQuote();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [fetchQuote]);
+    console.log('[Swap] Transaction hash:', hash);
 
-  const handleSwap = async () => {
-    if (!quote || !address) return;
+    toast.loading("Waiting for confirmation...", { id: toastId });
     
-    setIsSwapping(true);
-    const toastId = toast.loading("Preparing swap...");
-    
-    try {
-      // 1. Ensure correct chain
-      if (chainId !== fromToken.chainId) {
-        toast.loading("Switching network...", { id: toastId });
-        await switchChainAsync({ chainId: fromToken.chainId });
-      }
-
-      // 2. Execute transaction with builder code attribution
-      toast.loading("Confirm swap in wallet...", { id: toastId });
-      
-      // Append builder code to transaction data
-      const txData = quote.transactionRequest.data || '0x';
-      const finalData = appendBuilderCode(txData);
-
-      const hash = await sendTransactionAsync({
-        to: quote.transactionRequest.to as `0x${string}`,
-        data: finalData,
-        value: quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n,
-      });
-
-      toast.loading("Waiting for confirmation...", { id: toastId });
-      
-      if (publicClient) {
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (publicClient) {
+      try {
+        const receipt = await publicClient.waitForTransactionReceipt({ 
+          hash,
+          timeout: 120_000, // 2 minute timeout
+        });
+        
+        console.log('[Swap] Receipt:', receipt);
         
         if (receipt.status === 'reverted') {
-          throw new Error("Transaction reverted onchain");
+          throw new Error("Swap failed onchain - insufficient liquidity or price impact too high");
         }
 
         // 3. Update history and stats
@@ -171,399 +84,20 @@ export function SwapSection() {
         });
 
         toast.success("Swap successful!", { id: toastId });
+      } catch (waitError) {
+        console.error('[Swap] Receipt wait error:', waitError);
+        // Transaction submitted successfully even if we can't wait for receipt
+        toast.success("Swap submitted!", { 
+          id: toastId,
+          description: "Check BaseScan in a few seconds"
+        });
       }
-    } catch (error: any) {
-      console.error('Swap failed:', error);
-      toast.error(error.message || "Swap failed", { id: toastId });
-    } finally {
-      setIsSwapping(false);
     }
-  };
-
-  const syncHistory = async () => {
-    if (!address || !publicClient) return;
-    setIsSyncing(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success("History synced with Base");
-    } catch (error) {
-      console.error('Sync failed:', error);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  return (
-    <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
-      <div className="lg:col-span-3 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <GlassCard className="p-4 bg-blue-600/5 border-blue-500/20 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-blue-500/20 transition-all" />
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 bg-blue-500/20 rounded-lg">
-                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-                </div>
-                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Volume</span>
-              </div>
-              <div className="text-2xl font-bold text-white tracking-tight">${Number(stats.totalVolume).toLocaleString()}</div>
-            </GlassCard>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <GlassCard className="p-4 bg-purple-600/5 border-purple-500/20 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-purple-500/20 transition-all" />
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 bg-purple-500/20 rounded-lg">
-                  <Zap className="w-3.5 h-3.5 text-purple-400" />
-                </div>
-                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Gas Saved</span>
-              </div>
-              <div className="text-2xl font-bold text-white tracking-tight">{Number(stats.totalGas).toFixed(4)} ETH</div>
-            </GlassCard>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <GlassCard className="p-4 bg-green-600/5 border-green-500/20 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-green-500/10 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-green-500/20 transition-all" />
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 bg-green-500/20 rounded-lg">
-                  <ArrowDownUp className="w-3.5 h-3.5 text-green-400" />
-                </div>
-                <span className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Swaps</span>
-              </div>
-              <div className="text-2xl font-bold text-white tracking-tight">{stats.swapCount}</div>
-            </GlassCard>
-          </motion.div>
-        </div>
-
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}>
-          <GlassCard className="p-6 min-h-[600px] relative overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                  <Repeat className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">Swap Assets</h2>
-                  <p className="text-[10px] text-white/40 uppercase tracking-wider font-bold">Builder Attribution Enabled</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button 
-                  variant="ghost" 
-                  className="p-2 hover:bg-red-500/10 text-white/20 hover:text-red-400 transition-colors"
-                  onClick={() => {
-                    if (confirm("Reset your swap stats and history?")) {
-                      localStorage.removeItem(`swap_history_${address}`);
-                      localStorage.removeItem(`swap_stats_${address}`);
-                      setHistory([]);
-                      setStats({ totalVolume: '0', totalGas: '0', swapCount: 0 });
-                    }
-                  }}
-                >
-                  <RefreshCw className="w-5 h-5" />
-                </Button>
-                <Button variant="ghost" className="p-2 hover:bg-white/5"><Settings className="w-5 h-5" /></Button>
-              </div>
-            </div>
-
-            <div className="flex-1 flex flex-col gap-4 max-w-md mx-auto w-full">
-              {/* From Token */}
-              <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
-                <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
-                  <span>You Pay</span>
-                  <span className={cn(hasInsufficientBalance && "text-red-400")}>
-                    Balance: {fromBalance ? `${Number(fromBalance.formatted).toFixed(4)} ${fromBalance.symbol}` : '0.00'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="number"
-                    value={fromAmount}
-                    onChange={(e) => setFromAmount(e.target.value)}
-                    placeholder="0.0"
-                    className="bg-transparent text-2xl font-bold text-white outline-none w-full"
-                  />
-                  <div 
-                    className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors shrink-0"
-                    onClick={() => setIsTokenSelectorOpen('from')}
-                  >
-                    <img src={fromToken.logoURI} alt={fromToken.symbol} className="w-6 h-6 rounded-full" />
-                    <span className="font-bold text-white">{fromToken.symbol}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Switch Button */}
-              <div className="flex justify-center -my-6 relative z-10">
-                <Button 
-                  variant="outline" 
-                  className="w-10 h-10 rounded-full bg-slate-900 border-white/10 p-0 hover:scale-110 transition-transform"
-                  onClick={() => {
-                    const temp = fromToken;
-                    setFromToken(toToken);
-                    setToToken(temp);
-                    setFromAmount('');
-                  }}
-                >
-                  <ArrowDown className="w-5 h-5 text-blue-400" />
-                </Button>
-              </div>
-
-              {/* To Token */}
-              <div className="p-4 bg-white/5 rounded-3xl border border-white/10 space-y-2">
-                <div className="flex justify-between text-[10px] text-white/40 uppercase font-bold">
-                  <span>You Receive</span>
-                  <span>
-                    Balance: {toBalance ? `${Number(toBalance.formatted).toFixed(4)} ${toBalance.symbol}` : '0.00'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-2xl font-bold text-white/60 w-full">
-                    {isQuoting ? (
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                    ) : quote ? (
-                      Number(formatUnits(BigInt(quote.estimate.toAmount), toToken.decimals)).toFixed(6)
-                    ) : (
-                      '0.0'
-                    )}
-                  </div>
-                  <div 
-                    className="flex items-center gap-2 bg-white/10 p-2 rounded-2xl cursor-pointer hover:bg-white/20 transition-colors shrink-0"
-                    onClick={() => setIsTokenSelectorOpen('to')}
-                  >
-                    <img src={toToken.logoURI} alt={toToken.symbol} className="w-6 h-6 rounded-full" />
-                    <span className="font-bold text-white">{toToken.symbol}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quote Info */}
-              {quote && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }} 
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 space-y-2 text-xs"
-                >
-                  <div className="flex justify-between text-white/60">
-                    <span>Rate</span>
-                    <span>1 {fromToken.symbol} = {(Number(quote.estimate.toAmount) / Number(quote.estimate.fromAmount)).toFixed(6)} {toToken.symbol}</span>
-                  </div>
-                  <div className="flex justify-between text-white/60">
-                    <span>Estimated Gas</span>
-                    <span>${Number(quote.estimate.gasCosts?.[0]?.amountUSD || '0').toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-white/60">
-                    <span>Price Impact</span>
-                    <span className={cn(Number(quote.estimate.feeCosts?.[0]?.percentage || '0') > 2 ? "text-red-400" : "text-green-400")}>
-                      {Number(quote.estimate.feeCosts?.[0]?.percentage || '0').toFixed(2)}%
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Action Button */}
-              <Button
-                className={cn(
-                  "w-full py-6 rounded-3xl text-lg font-bold shadow-xl mt-4",
-                  hasInsufficientBalance ? "bg-red-500/20 text-red-400 border border-red-500/50" : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
-                )}
-                disabled={!quote || isSwapping || !address || hasInsufficientBalance}
-                onClick={handleSwap}
-              >
-                {isSwapping ? (
-                  <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Executing Swap...</>
-                ) : !address ? (
-                  <><Wallet className="w-5 h-5 mr-2" /> Connect Wallet</>
-                ) : hasInsufficientBalance ? (
-                  'Insufficient Balance'
-                ) : quote ? (
-                  'Swap Now'
-                ) : (
-                  'Enter Amount'
-                )}
-              </Button>
-            </div>
-            
-            <div className="mt-auto pt-8 flex flex-col items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
-                <Shield className="w-3 h-3 text-green-400" />
-                <span className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Builder Attribution Active</span>
-              </div>
-              <p className="text-center text-[10px] text-white/20 uppercase tracking-widest font-bold">
-                Optimized routing powered by LI.FI SDK
-              </p>
-            </div>
-          </GlassCard>
-        </motion.div>
-      </div>
-
-      {/* Token Selector Modal */}
-      <AnimatePresence>
-        {isTokenSelectorOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl overflow-hidden"
-            >
-              <div className="p-6 border-b border-white/10 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white">Select Token</h3>
-                <Button 
-                  variant="ghost" 
-                  className="p-1 hover:bg-white/10"
-                  onClick={() => setIsTokenSelectorOpen(null)}
-                >
-                  <RefreshCw className="w-5 h-5 rotate-45" />
-                </Button>
-              </div>
-              <div className="p-4">
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                  <input 
-                    type="text" 
-                    placeholder="Search name or address" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white outline-none focus:border-blue-500/50 transition-colors"
-                  />
-                </div>
-                <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
-                  {filteredTokens.map((token) => {
-                    const isSelected = isTokenSelectorOpen === 'from' ? fromToken.symbol === token.symbol : toToken.symbol === token.symbol;
-                    const isDisabled = isTokenSelectorOpen === 'from' ? toToken.symbol === token.symbol : fromToken.symbol === token.symbol;
-
-                    return (
-                      <div 
-                        key={token.symbol}
-                        className={cn(
-                          "flex items-center justify-between p-3 rounded-2xl transition-colors cursor-pointer",
-                          isSelected ? "bg-blue-600/20 border border-blue-500/30" : "hover:bg-white/5 border border-transparent",
-                          isDisabled && "opacity-40 cursor-not-allowed"
-                        )}
-                        onClick={() => {
-                          if (isDisabled) return;
-                          if (isTokenSelectorOpen === 'from') setFromToken(token);
-                          else setToToken(token);
-                          setIsTokenSelectorOpen(null);
-                          setFromAmount('');
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <img src={token.logoURI} alt={token.symbol} className="w-8 h-8 rounded-full" />
-                          <div>
-                            <div className="font-bold text-white">{token.symbol}</div>
-                            <div className="text-[10px] text-white/40 uppercase font-bold">{token.name}</div>
-                          </div>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-blue-400" />}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <div className="space-y-6">
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 }}>
-          <GlassCard className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-white">Recent Swaps</h3>
-              </div>
-              <Button 
-                variant="ghost" 
-                className="p-1 hover:bg-white/10"
-                onClick={syncHistory}
-                disabled={isSyncing}
-              >
-                <RefreshCw className={cn("w-4 h-4 text-white/40", isSyncing && "animate-spin")} />
-              </Button>
-            </div>
-
-            {history.length === 0 ? (
-              <div className="text-center py-16 border border-dashed border-white/10 rounded-2xl">
-                <Clock className="w-12 h-12 text-white/5 mx-auto mb-3" />
-                <p className="text-xs text-white/30 italic">No recent swaps found</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                <AnimatePresence mode="popLayout">
-                  {history.map((item, i) => (
-                    <motion.div 
-                      key={item.hash + i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 10 }}
-                      className="p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-blue-500/30 transition-all group cursor-pointer"
-                    >
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors">{item.amount}</span>
-                          <div className="flex items-center gap-1 text-[10px] text-white/40">
-                            <span>{item.from}</span>
-                            <ChevronRight className="w-2 h-2" />
-                            <span>{item.to}</span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-white/20">{new Date(item.timestamp).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex items-center justify-between pt-3 border-t border-white/5">
-                        <span className="text-[10px] text-white/40 font-mono">{item.hash.substring(0, 12)}...</span>
-                        <div className="flex gap-3">
-                          {item.gasUsed && (
-                            <span className="text-[9px] text-purple-400/60 flex items-center gap-1">
-                              <Zap className="w-2 h-2" />
-                              {item.gasUsed}
-                            </span>
-                          )}
-                          <a 
-                            href={`https://basescan.org/tx/${item.hash}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-white/40 hover:text-white transition-colors"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
-
-            <Button 
-              variant="outline" 
-              className="w-full mt-6 text-xs flex items-center justify-center gap-2 py-3 rounded-xl"
-              onClick={() => window.open(`https://basescan.org/address/${address}`, '_blank')}
-            >
-              Full Explorer View
-              <ExternalLink className="w-3 h-3" />
-            </Button>
-          </GlassCard>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
-          <GlassCard className="p-6 bg-gradient-to-br from-blue-600/10 to-purple-600/10 border-blue-500/20">
-            <div className="flex items-center gap-3 mb-3">
-              <Star className="w-4 h-4 text-yellow-400" />
-              <h4 className="text-sm font-bold text-white">Ecosystem Power</h4>
-            </div>
-            <p className="text-xs text-white/50 leading-relaxed">
-              BaseNexus uses LI.FI SDK to find the best routes across the Base ecosystem. 
-              Every swap is optimized for speed and gas efficiency with custom builder attribution.
-            </p>
-          </GlassCard>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
+  } catch (error: any) {
+    console.error('[Swap] Swap failed:', error);
+    const errorMessage = error.message || "Swap failed - check console for details";
+    toast.error("Swap Failed", { id: toastId, description: errorMessage.substring(0, 100) });
+  } finally {
+    setIsSwapping(false);
+  }
+};
