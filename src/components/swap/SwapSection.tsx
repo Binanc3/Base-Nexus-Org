@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { GlassCard, Button } from '../ui/GlassUI';
+import { Repeat, ArrowDown, Activity } from 'lucide-react';
 import {
   useAccount,
   usePublicClient,
@@ -24,8 +26,12 @@ export function SwapSection() {
   const { switchChainAsync } = useSwitchChain();
 
   const [quote, setQuote] = useState<any>(null);
-  const [fromToken, setFromToken] = useState<any>(null);
-  const [toToken, setToToken] = useState<any>(null);
+  
+  // NOTE: Initializing these to valid placeholders so the UI renders. 
+  // You will need to wire up a token selector!
+  const [fromToken, setFromToken] = useState<any>({ symbol: 'ETH', name: 'Ethereum', address: NATIVE_TOKEN_ADDRESS, decimals: 18, chainId: 8453 });
+  const [toToken, setToToken] = useState<any>({ symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6, chainId: 8453 });
+  
   const [isSwapping, setIsSwapping] = useState(false);
   const [history, setHistory] = useState<SwapRecord[]>(() => {
     try {
@@ -66,8 +72,6 @@ export function SwapSection() {
     const toastId = toast.loading('Initializing swap…');
 
     try {
-
-      // 1. NETWORK SWITCH
       const requiredChainId = quote.action.fromChainId ?? fromToken.chainId;
       if (chainId !== requiredChainId) {
         toast.loading(`Switching to ${fromToken.name}…`, { id: toastId });
@@ -75,13 +79,11 @@ export function SwapSection() {
         await new Promise(resolve => setTimeout(resolve, 1200));
       }
 
-      // 2. APPEND BUILDER CODE
       const rawData = (quote.transactionRequest.data as `0x${string}`) || '0x';
       const finalData: `0x${string}` = hasBuilderCode(rawData)
         ? rawData
         : appendBuilderCode(rawData);
 
-      // 3. ALLOWANCE CHECK + APPROVAL
       const isNative =
         fromToken.address === NATIVE_TOKEN_ADDRESS ||
         fromToken.address === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
@@ -129,7 +131,6 @@ export function SwapSection() {
         }
       }
 
-      // 4. GAS ESTIMATION
       toast.loading('Estimating gas…', { id: toastId });
 
       const txValue = quote.transactionRequest.value
@@ -150,7 +151,6 @@ export function SwapSection() {
         estimatedGas = 600_000n;
       }
 
-      // 5. SEND TRANSACTION
       toast.loading('Confirm swap in wallet…', { id: toastId });
 
       const hash = await sendTransactionAsync({
@@ -164,7 +164,6 @@ export function SwapSection() {
 
       toast.loading('Broadcasting to network…', { id: toastId });
 
-      // 6. WAIT FOR RECEIPT
       const receipt = await publicClient.waitForTransactionReceipt({
         hash,
         timeout: TX_RECEIPT_TIMEOUT_MS,
@@ -177,7 +176,6 @@ export function SwapSection() {
         );
       }
 
-      // 7. RECORD HISTORY & STATS
       const gasCostEth = receipt.effectiveGasPrice
         ? formatEther(receipt.gasUsed * receipt.effectiveGasPrice)
         : '0';
@@ -267,11 +265,87 @@ export function SwapSection() {
   };
 
   return (
-    <div>
-      {/* Your swap UI — wire up setQuote, fromToken, toToken, history, stats as needed */}
-      <button onClick={handleSwap} disabled={isSwapping}>
-        {isSwapping ? 'Swapping…' : 'Swap'}
-      </button>
+    <div className="max-w-xl mx-auto space-y-6">
+      <GlassCard className="p-8">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-bold flex items-center gap-3 text-white">
+            <Repeat className="w-7 h-7 text-blue-400" />
+            Nexus Swap
+          </h2>
+        </div>
+
+        <div className="space-y-2">
+          {/* Pay Section */}
+          <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
+            <label className="text-xs text-white/50 font-bold uppercase tracking-wider mb-3 block">You Pay</label>
+            <div className="flex justify-between items-center">
+              <input 
+                type="number" 
+                className="bg-transparent text-4xl font-bold text-white outline-none w-2/3 placeholder:text-white/20" 
+                placeholder="0.0" 
+                onChange={(e) => {
+                  // Connect your quote fetching logic to this input
+                  // setAmount(e.target.value) -> trigger API
+                }}
+              />
+              <div className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-xl font-bold border border-blue-500/20 flex items-center gap-2 cursor-pointer hover:bg-blue-600/30">
+                {fromToken?.symbol || 'ETH'}
+              </div>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="flex justify-center -my-5 relative z-10">
+            <button className="bg-[#0a1628] border border-white/10 p-3 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-all shadow-xl">
+              <ArrowDown className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Receive Section */}
+          <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
+            <label className="text-xs text-white/50 font-bold uppercase tracking-wider mb-3 block">You Receive</label>
+            <div className="flex justify-between items-center">
+              <input 
+                type="number" 
+                disabled
+                className="bg-transparent text-4xl font-bold text-white/50 outline-none w-2/3 placeholder:text-white/20" 
+                placeholder="0.0" 
+                value={quote?.estimate?.toAmount ? formatUnits(BigInt(quote.estimate.toAmount), toToken.decimals) : ''}
+              />
+              <div className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-xl font-bold border border-blue-500/20 flex items-center gap-2 cursor-pointer hover:bg-blue-600/30">
+                {toToken?.symbol || 'USDC'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Button */}
+        <Button 
+          onClick={handleSwap} 
+          disabled={isSwapping}
+          className="w-full mt-8 py-5 text-lg font-bold"
+        >
+          {isSwapping ? 'Swapping...' : 'Swap Tokens'}
+        </Button>
+      </GlassCard>
+      
+      {/* Transaction History */}
+      {history.length > 0 && (
+        <GlassCard className="p-6">
+           <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-400" />
+            Recent Swaps
+          </h3>
+          <div className="space-y-3">
+             {history.map((tx, i) => (
+                <div key={i} className="flex justify-between text-xs p-3 bg-white/5 rounded-xl border border-white/5">
+                   <span className="text-white/80">{tx.fromAmount} {tx.from} ➔ {tx.toAmount} {tx.to}</span>
+                   <span className="text-green-400 font-mono">Confirmed</span>
+                </div>
+             ))}
+          </div>
+        </GlassCard>
+      )}
     </div>
   );
 }
