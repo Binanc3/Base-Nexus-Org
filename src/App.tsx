@@ -3,7 +3,7 @@ import { useAccount, useConnect, useDisconnect, useSendTransaction, usePublicCli
 import sdk from '@farcaster/miniapp-sdk';
 import { Web3Provider } from './components/Web3Provider';
 import { Button, GlassCard } from './components/ui/GlassUI';
-import { SlicingGame, EndlessRunner } from './components/games/GameHub';
+import { SlicingGame, EndlessRunner, NeonDefender } from './components/games/GameHub';
 import { SwapSection } from './components/swap/SwapSection';
 import { OnchainAI } from './components/ai/OnchainAI';
 import { ContractDeployer } from './components/deployer/ContractDeployer';
@@ -38,7 +38,6 @@ function MainApp() {
   const [recentActions, setRecentActions] = useState<any[]>([]);
   const [globalStats, setGlobalStats] = useState({ users: 0, actions: 0, games: 0, messages: 0 });
 
-  // 1. INITIALIZATION & MOBILE UX
   useEffect(() => {
     const init = async () => {
       try {
@@ -59,7 +58,6 @@ function MainApp() {
     };
   }, []);
 
-  // 2. SCALABLE STATS & ACTIVITY FETCHING
   useEffect(() => {
     const refreshData = async () => {
       try {
@@ -100,7 +98,6 @@ function MainApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // 3. SECURE GAME COMPLETION LOGIC
   const isLoggingRef = useRef<boolean>(false);
   const handleGameComplete = async (game: string, score: number) => {
     if (isLoggingRef.current) return;
@@ -115,15 +112,17 @@ function MainApp() {
         const txData = createLogData(`SCORE:${game}:${score}`);
 
         const gas = await publicClient?.estimateGas({
-          account: address,
-          to: address,
-          data: txData,
+          account: address as `0x${string}`,
+          to: address as `0x${string}`,
+          data: txData as `0x${string}`,
           value: 0n,
         }).catch(() => 35000n);
 
+        // ✅ FIX: Added value: 0n to explicitly tell wagmi not to fail formatting
         const hash = await sendTransactionAsync({
-          to: address,
-          data: txData,
+          to: address as `0x${string}`,
+          data: txData as `0x${string}`,
+          value: 0n, 
           gas: (gas! * 120n) / 100n,
         });
 
@@ -136,8 +135,12 @@ function MainApp() {
         ]);
 
         toast.success("Score Immutable on Base!", { id: toastId });
-      } catch (err) {
-        toast.error("Logging failed - Saved as Guest", { id: toastId });
+      } catch (err: any) {
+        let msg = "Logging failed - Saved as Guest";
+        if (err.message?.toLowerCase().includes('insufficient funds')) {
+           msg = "Insufficient Base ETH for gas. Saved as Guest.";
+        }
+        toast.error(msg, { id: toastId });
       }
     } else {
       await supabase.from('leaderboards').insert([{ game_id: game, user_address: 'Guest', score }]);
@@ -157,7 +160,6 @@ function MainApp() {
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
-  // Helper: switch tab and close mobile menu
   const handleTabSelect = (id: string) => {
     setActiveTab(id);
     setMobileMenuOpen(false);
@@ -165,8 +167,6 @@ function MainApp() {
 
   return (
     <div className="h-[100dvh] bg-[#050b18] text-white flex flex-col lg:flex-row overflow-hidden">
-
-      {/* ── CONNECT MODAL ── */}
       <AnimatePresence>
         {showConnectModal && (
           <motion.div
@@ -177,20 +177,26 @@ function MainApp() {
               <button onClick={() => setShowConnectModal(false)} className="absolute top-4 right-4 text-white/40 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
-              <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                <Wallet className="w-8 h-8 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold mb-2">Nexus Connect</h2>
-              <p className="text-white/60 mb-8 text-sm">Join the Base ecosystem to log scores and deploy contracts.</p>
+              <Wallet className="w-16 h-16 text-blue-400 mx-auto mb-6" />
+              <h2 className="text-2xl font-bold text-white mb-2">Connect Wallet</h2>
+              <p className="text-white/60 mb-8 text-sm">Connect your smart wallet to interact with the Base network.</p>
+              
               <div className="space-y-3">
                 {connectors.map((connector) => (
                   <Button
-                    key={connector.id}
-                    onClick={() => { connect({ connector }); setShowConnectModal(false); }}
-                    className="w-full py-4 flex items-center justify-between px-6 group"
+                    key={connector.uid}
+                    onClick={() => {
+                      connect({ connector });
+                      setShowConnectModal(false);
+                    }}
+                    className="w-full py-4 bg-white/5 hover:bg-blue-600/20 text-white border border-white/10 hover:border-blue-500/50 flex items-center justify-center gap-3"
                   >
-                    <span className="font-bold">{connector.name}</span>
-                    <Zap className="w-4 h-4 text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <img 
+                      src={connector.name.includes('Coinbase') ? 'https://docs.base.org/img/logo.svg' : 'https://raw.githubusercontent.com/WalletConnect/walletconnect-assets/master/Logo/Blue%20(Default)/Logo.svg'} 
+                      className="w-6 h-6 object-contain"
+                      alt={connector.name}
+                    />
+                    {connector.name}
                   </Button>
                 ))}
               </div>
@@ -199,232 +205,235 @@ function MainApp() {
         )}
       </AnimatePresence>
 
-      {/* ── MOBILE MENU OVERLAY DRAWER ── */}
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <>
-            {/* Backdrop — tap outside to close */}
-            <motion.div
-              key="mobile-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="lg:hidden fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
-              onClick={() => setMobileMenuOpen(false)}
-            />
+      <nav className="lg:w-72 border-r border-white/5 bg-[#0a1224] flex flex-col z-50">
+        <div className="p-6 flex items-center justify-between lg:justify-start gap-3 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Shield className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="font-bold text-xl tracking-tight text-white">Base Nexus</h1>
+              <p className="text-[10px] text-blue-400 uppercase tracking-widest font-mono">Mainnet Active</p>
+            </div>
+          </div>
+          <button 
+            className="lg:hidden p-2 text-white/60 hover:text-white"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
 
-            {/* Drawer — slides down from the top bar */}
-            <motion.div
-              key="mobile-drawer"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="lg:hidden fixed left-0 right-0 top-[57px] z-[70] bg-[#0a1628]/95 backdrop-blur-xl border-b border-white/10 shadow-2xl shadow-black/50"
-            >
-              {/* Tab list */}
-              <nav className="p-3 grid grid-cols-2 gap-2">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => handleTabSelect(tab.id)}
-                    className={cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left",
-                      activeTab === tab.id
-                        ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                        : "text-white/60 bg-white/5 hover:bg-white/10 hover:text-white"
-                    )}
-                  >
-                    <tab.icon className="w-4 h-4 shrink-0" />
-                    <span className="font-medium text-sm">{tab.label}</span>
-                  </button>
-                ))}
-              </nav>
+        <div className={cn(
+          "flex-1 overflow-y-auto py-6 px-4 space-y-2 lg:block absolute lg:static inset-0 top-[88px] bg-[#0a1224] lg:bg-transparent transition-transform duration-300",
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}>
+          <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-4 px-2">Ecosystem</div>
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabSelect(tab.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group text-sm font-medium",
+                  activeTab === tab.id 
+                    ? "bg-blue-600/20 text-blue-400 border border-blue-500/20" 
+                    : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                )}
+              >
+                <Icon className={cn("w-5 h-5", activeTab === tab.id ? "text-blue-400" : "group-hover:scale-110 transition-transform")} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-              {/* Wallet status row */}
-              <div className="px-4 pb-4">
-                <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                  {isConnected ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] text-white/40 uppercase font-bold mb-0.5">Connected</p>
-                        <p className="text-xs font-mono truncate text-blue-400">{address}</p>
-                      </div>
-                      <button
-                        onClick={() => { disconnect(); setMobileMenuOpen(false); }}
-                        className="shrink-0 p-2 bg-red-500/10 rounded-lg"
-                      >
-                        <LogOut className="w-4 h-4 text-red-400" />
-                      </button>
-                    </div>
-                  ) : (
-                    <Button
-                      onClick={() => { setShowConnectModal(true); setMobileMenuOpen(false); }}
-                      className="w-full py-2 text-xs"
-                    >
-                      Connect Wallet
-                    </Button>
-                  )}
+        <div className="p-4 border-t border-white/5 bg-[#0a1224] lg:block hidden">
+          {isConnected && address ? (
+            <GlassCard className="p-4 bg-zinc-900/50 border-zinc-800">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center border-2 border-zinc-950">
+                  <User className="w-4 h-4 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-zinc-400 uppercase tracking-wider font-mono">Connected</p>
+                  <p className="text-sm font-bold text-white truncate">{address.substring(0,6)}...{address.substring(38)}</p>
                 </div>
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* ── DESKTOP SIDEBAR ── */}
-      <aside className="hidden lg:flex w-72 border-r border-white/10 p-6 flex-col gap-8 bg-black/20 backdrop-blur-xl">
-        <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-            <Shield className="w-6 h-6" />
-          </div>
-          <span className="text-xl font-bold tracking-tight">BaseNexus</span>
-        </div>
-        <nav className="flex-1 space-y-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
-                activeTab === tab.id
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "text-white/60 hover:bg-white/5 hover:text-white"
-              )}
-            >
-              <tab.icon className="w-5 h-5" />
-              <span className="font-medium">{tab.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
-          {isConnected ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-white/40 uppercase font-bold">Authenticated</span>
-                <button onClick={() => disconnect()}><LogOut className="w-4 h-4 text-red-400" /></button>
-              </div>
-              <p className="text-xs font-mono truncate text-blue-400">{address}</p>
-            </div>
+              <Button 
+                variant="outline" 
+                className="w-full py-2 text-xs border-zinc-700 text-zinc-300 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30"
+                onClick={() => disconnect()}
+              >
+                <LogOut className="w-3 h-3 mr-2" /> Disconnect
+              </Button>
+            </GlassCard>
           ) : (
-            <Button onClick={() => setShowConnectModal(true)} className="w-full py-2 text-xs">Connect Wallet</Button>
+            <Button 
+              className="w-full py-4 text-sm font-bold bg-white text-black hover:bg-zinc-200"
+              onClick={() => setShowConnectModal(true)}
+            >
+              <Wallet className="w-4 h-4 mr-2" /> Connect Wallet
+            </Button>
           )}
         </div>
-      </aside>
+      </nav>
 
-      {/* ── MOBILE TOP NAV BAR ── */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/10 px-4 py-3 flex justify-between items-center">
-        <span className="font-bold flex items-center gap-2">
-          <Shield className="w-5 h-5 text-blue-500" /> BaseNexus
-        </span>
-        {/* Active tab label — shows which section you're on */}
-        <span className="text-xs text-white/40 font-medium">
-          {tabs.find(t => t.id === activeTab)?.label}
-        </span>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 bg-white/5 rounded-lg border border-white/10"
-        >
-          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
-      </div>
+      <main 
+        ref={mainRef}
+        className="flex-1 overflow-y-auto relative bg-[#050b18]"
+      >
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none mix-blend-overlay"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/10 via-transparent to-purple-900/10 pointer-events-none"></div>
 
-      {/* ── MAIN CONTENT ── */}
-      <main ref={mainRef} className="flex-1 overflow-y-auto relative p-4 lg:p-8 pt-20 lg:pt-8 overscroll-none">
-        <div className="max-w-7xl mx-auto relative z-10">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-            >
-              {activeTab === 'dashboard' && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatCard label="Live Users" value={globalStats.users} icon={Globe} color="text-blue-400" />
-                    <StatCard label="Onchain Actions" value={globalStats.actions} icon={Zap} color="text-purple-400" />
-                    <StatCard label="Arcade Plays" value={globalStats.games} icon={Trophy} color="text-yellow-400" />
-                    <StatCard label="Wall Posts" value={globalStats.messages} icon={MessageSquare} color="text-green-400" />
+        <div className="relative z-10 max-w-6xl mx-auto p-4 lg:p-8 pt-8">
+          
+          {/* Dashboard View */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-3xl lg:text-4xl font-black text-white tracking-tight mb-2">Welcome to Nexus</h2>
+                  <p className="text-zinc-400">The premier ecosystem for Base network interaction.</p>
+                </div>
+                {!isConnected && (
+                  <Button onClick={() => setShowConnectModal(true)} className="hidden lg:flex items-center gap-2">
+                    <Wallet className="w-4 h-4" /> Connect Now
+                  </Button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Active Users', value: globalStats.users, icon: User, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                  { label: 'Onchain Actions', value: globalStats.actions, icon: Zap, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+                  { label: 'Games Played', value: globalStats.games, icon: Gamepad2, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+                  { label: 'Wall Messages', value: globalStats.messages, icon: MessageSquare, color: 'text-green-400', bg: 'bg-green-500/10' },
+                ].map((stat, i) => (
+                  <GlassCard key={i} className="p-6 border-zinc-800/50 hover:border-zinc-700 transition-colors">
+                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center mb-4", stat.bg)}>
+                      <stat.icon className={cn("w-5 h-5", stat.color)} />
+                    </div>
+                    <div className="text-3xl font-black text-white mb-1">{stat.value.toLocaleString()}</div>
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider font-bold">{stat.label}</div>
+                  </GlassCard>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <GlassCard className="lg:col-span-2 p-6 border-zinc-800/50">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                      <Globe className="w-5 h-5 text-blue-400" /> Ecosystem Features
+                    </h3>
                   </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {tabs.slice(1, 5).map((tab) => (
+                      <button 
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:border-blue-500/30 hover:bg-blue-900/10 transition-all text-left group"
+                      >
+                        <tab.icon className="w-6 h-6 text-zinc-400 group-hover:text-blue-400 mb-3 transition-colors" />
+                        <h4 className="font-bold text-white mb-1">{tab.label}</h4>
+                        <p className="text-xs text-zinc-500">Access {tab.label.toLowerCase()} tools directly on Base.</p>
+                      </button>
+                    ))}
+                  </div>
+                </GlassCard>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <GlassCard className="lg:col-span-2 p-6">
-                      <h3 className="font-bold mb-6 flex items-center gap-2 text-white/60 text-sm uppercase tracking-widest">
-                        <Activity className="w-4 h-4" /> Live Feed
-                      </h3>
-                      <div className="space-y-4">
-                        {recentActions.map((action, i) => (
-                          <div key={i} className="flex items-center justify-between text-xs p-3 bg-white/5 rounded-xl border border-white/5">
-                            <span className="text-white/80">{action.label}</span>
-                            <span className="text-white/20 font-mono">
-                              {new Date(action.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                        ))}
+                <GlassCard className="p-6 border-zinc-800/50 flex flex-col">
+                  <h3 className="font-bold text-lg text-white flex items-center gap-2 mb-6">
+                    <Activity className="w-5 h-5 text-purple-400" /> Live Feed
+                  </h3>
+                  <div className="flex-1 space-y-4">
+                    {recentActions.map((action, i) => (
+                      <div key={i} className="flex items-center gap-3 text-sm">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          action.color === 'blue' ? "bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.5)]" :
+                          action.color === 'purple' ? "bg-purple-400 shadow-[0_0_8px_rgba(192,132,252,0.5)]" :
+                          "bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]"
+                        )} />
+                        <div className="flex-1 truncate">
+                          <span className="text-zinc-300">{action.label}</span>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          {new Date(action.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
-                    </GlassCard>
-                    <GlassCard className="p-6 bg-gradient-to-br from-blue-600/10 to-purple-600/10 border-blue-500/20">
-                      <h3 className="font-bold mb-2 flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-yellow-400" /> Reputation
-                      </h3>
-                      <p className="text-sm text-white/50 mb-6">
-                        Your onchain activity is logged to Base Mainnet, building your permanent reputation.
-                      </p>
-                      <Button variant="outline" className="w-full text-xs" onClick={() => setActiveTab('profile')}>
-                        Analyze My Stats
-                      </Button>
-                    </GlassCard>
+                    ))}
+                    {recentActions.length === 0 && (
+                      <div className="text-center text-zinc-500 text-sm mt-8">Waiting for activity...</div>
+                    )}
                   </div>
+                </GlassCard>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'games' && (
+            <div className="space-y-8">
+              {!lastScore ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+                  <GlassCard className="p-8 flex flex-col items-center text-center group hover:border-blue-500/50 transition-all cursor-pointer" onClick={() => setLastScore({ game: 'FruitNinja', score: 0 })}>
+                    <div className="w-20 h-20 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                      <Gamepad2 className="w-10 h-10 text-blue-400" />
+                    </div>
+                    <h3 className="text-2xl font-black text-white mb-2">Base Ninja</h3>
+                    <p className="text-zinc-400 mb-6 text-sm">Slice objects, avoid bombs. High scores are secured onchain.</p>
+                    <Button className="w-full">Play Now</Button>
+                  </GlassCard>
+
+                  <GlassCard className="p-8 flex flex-col items-center text-center group hover:border-purple-500/50 transition-all cursor-pointer" onClick={() => setLastScore({ game: 'EndlessRunner', score: 0 })}>
+                    <div className="w-20 h-20 bg-purple-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                      <Trophy className="w-10 h-10 text-purple-400" />
+                    </div>
+                    <h3 className="text-2xl font-black text-white mb-2">Base Runner</h3>
+                    <p className="text-zinc-400 mb-6 text-sm">Jump the obstacles. Prove your reflexes on the Base network.</p>
+                    <Button className="w-full bg-purple-600 hover:bg-purple-500">Play Now</Button>
+                  </GlassCard>
+
+                  <GlassCard className="p-8 flex flex-col items-center text-center group hover:border-pink-500/50 transition-all cursor-pointer md:col-span-2" onClick={() => setLastScore({ game: 'NeonDefender', score: 0 })}>
+                    <div className="w-20 h-20 bg-pink-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                      <Shield className="w-10 h-10 text-pink-400" />
+                    </div>
+                    <h3 className="text-2xl font-black text-white mb-2">Neon Defender</h3>
+                    <p className="text-zinc-400 mb-6 text-sm">Defend the core from incoming waves. Survive and secure your rank.</p>
+                    <Button className="w-full max-w-sm bg-pink-600 hover:bg-pink-500">Play Now</Button>
+                  </GlassCard>
+                </div>
+              ) : (
+                <div className="max-w-4xl mx-auto">
+                  {lastScore.game === 'FruitNinja' && <SlicingGame onComplete={(score) => handleGameComplete('FruitNinja', score)} onExit={() => setLastScore(null)} />}
+                  {lastScore.game === 'EndlessRunner' && <EndlessRunner onComplete={(score) => handleGameComplete('EndlessRunner', score)} onExit={() => setLastScore(null)} />}
+                  {lastScore.game === 'NeonDefender' && <NeonDefender onComplete={(score) => handleGameComplete('NeonDefender', score)} onExit={() => setLastScore(null)} />}
                 </div>
               )}
+            </div>
+          )}
 
-              {activeTab === 'games' && (
-                <div className="space-y-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <GlassCard className="p-4">
-                      <h3 className="mb-4 font-bold">Fruit Ninja</h3>
-                      <SlicingGame onComplete={(s) => handleGameComplete('FruitNinja', s)} onExit={() => setActiveTab('dashboard')} />
-                    </GlassCard>
-                    <GlassCard className="p-4">
-                      <h3 className="mb-4 font-bold">Base Runner</h3>
-                      <EndlessRunner onComplete={(s) => handleGameComplete('BaseRunner', s)} onExit={() => setActiveTab('dashboard')} />
-                    </GlassCard>
-                  </div>
-                </div>
-              )}
+          {activeTab === 'swap' && <SwapSection />}
+          {activeTab === 'ai' && <OnchainAI />}
+          {activeTab === 'deployer' && <ContractDeployer />}
+          {activeTab === 'checkin' && <CheckIn />}
+          {activeTab === 'wall' && <BaseWall />}
+          {activeTab === 'profile' && <ProfileSection />}
 
-              {activeTab === 'swap' && <SwapSection />}
-              {activeTab === 'ai' && <OnchainAI />}
-              {activeTab === 'deployer' && <ContractDeployer />}
-              {activeTab === 'checkin' && <CheckIn />}
-              {activeTab === 'profile' && <ProfileSection />}
-              {activeTab === 'wall' && <BaseWall />}
-
-            </motion.div>
-          </AnimatePresence>
         </div>
       </main>
-    </div>
-  );
-}
 
-function StatCard({ label, value, icon: Icon, color }: any) {
-  return (
-    <GlassCard className="p-4 lg:p-6">
-      <h3 className="text-white/40 text-[10px] uppercase tracking-tighter font-bold mb-1">{label}</h3>
-      <div className="text-xl lg:text-3xl font-bold mb-2">{value.toLocaleString()}</div>
-      <div className={cn("flex items-center gap-1 text-[10px] font-bold", color)}>
-        <Icon className="w-3 h-3" /> System Verified
-      </div>
-    </GlassCard>
+      <Toaster theme="dark" position="bottom-right" toastOptions={{
+        style: { background: '#0a1224', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }
+      }}/>
+    </div>
   );
 }
 
 export default function App() {
   return (
     <Web3Provider>
-      <Toaster position="top-center" richColors theme="dark" />
       <MainApp />
     </Web3Provider>
   );
