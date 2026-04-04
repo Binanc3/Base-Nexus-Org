@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { Code2, Rocket, Loader2, CheckCircle, Copy, ExternalLink, Zap, Info, History } from 'lucide-react';
 import { useConnectorClient, usePublicClient, useAccount } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { parseEther } from 'viem';
 import { base } from 'wagmi/chains';
 import { supabase } from '../../supabase';
 import { appendBuilderCode } from '../../lib/wagmi';
@@ -74,14 +74,15 @@ export function ContractDeployer() {
       let args: any[] = [];
       let bytecode: `0x${string}`;
 
+      // FIX: Guarantee the 0x prefix is attached to the raw bytecode exports
       if (contractType === 'ERC20') {
         abi = ERC20_ABI;
         args = [formData.name, formData.symbol, 18, parseEther(formData.supply)];
-        bytecode = ERC20_BYTECODE as `0x${string}`;
+        bytecode = (ERC20_BYTECODE.startsWith('0x') ? ERC20_BYTECODE : `0x${ERC20_BYTECODE}`) as `0x${string}`;
       } else {
         abi = ERC721_ABI;
         args = [formData.name, formData.symbol];
-        bytecode = ERC721_BYTECODE as `0x${string}`;
+        bytecode = (ERC721_BYTECODE.startsWith('0x') ? ERC721_BYTECODE : `0x${ERC721_BYTECODE}`) as `0x${string}`;
       }
       
       const finalBytecode = appendBuilderCode(bytecode);
@@ -109,7 +110,6 @@ export function ContractDeployer() {
         setDeployedAddress(address);
         setDeployedTxHash(hash);
         
-        // Save to Supabase
         try {
           await supabase.from('deployments').insert([{
             user_address: userAddress,
@@ -134,7 +134,6 @@ export function ContractDeployer() {
           timestamp: Date.now()
         });
 
-        // Reset form
         setFormData({ name: '', symbol: '', supply: '1000000' });
       }
     } catch (error) {
@@ -206,7 +205,6 @@ export function ContractDeployer() {
           </motion.div>
         ) : (
           <div className="space-y-6">
-            {/* Contract Type Selector */}
             <div>
               <label className="text-sm font-bold text-white/80 block mb-3">Choose Contract Type</label>
               <div className="grid grid-cols-2 gap-4">
@@ -245,7 +243,6 @@ export function ContractDeployer() {
               </div>
             </div>
 
-            {/* Form Fields */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm text-white/60 font-bold">Name</label>
@@ -301,7 +298,6 @@ export function ContractDeployer() {
               </div>
             )}
 
-            {/* Info Box */}
             <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl flex gap-3">
               <Info className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
               <div className="text-sm text-blue-200">
@@ -312,7 +308,6 @@ export function ContractDeployer() {
               </div>
             </div>
 
-            {/* Deploy Button */}
             <Button 
               className="w-full py-6 text-lg flex items-center justify-center gap-2 font-bold"
               onClick={handleDeploy}
@@ -335,9 +330,7 @@ export function ContractDeployer() {
         )}
       </GlassCard>
 
-      {/* Right Sidebar - History & Info */}
       <div className="space-y-6">
-        {/* Deployment History */}
         <GlassCard className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-white flex items-center gap-2">
@@ -402,7 +395,6 @@ export function ContractDeployer() {
           )}
         </GlassCard>
 
-        {/* Pro Tips */}
         <GlassCard className="p-6 bg-blue-600/20 border-blue-500/30">
           <div className="flex items-start gap-3">
             <Zap className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
@@ -418,7 +410,6 @@ export function ContractDeployer() {
           </div>
         </GlassCard>
 
-        {/* Contract Preview */}
         {formData.name && (
           <GlassCard className="p-6 border-blue-500/30 bg-gradient-to-br from-blue-600/10 to-purple-600/10">
             <h3 className="font-bold text-white mb-4 text-sm flex items-center gap-2">
