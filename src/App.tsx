@@ -11,7 +11,7 @@ import { CheckIn } from './components/checkin/CheckIn';
 import { ProfileSection } from './components/profile/ProfileSection';
 import { BaseWall } from './components/social/BaseWall';
 import { cn } from '@/src/lib/utils';
-import { createLogData } from './lib/wagmi';
+import { createLogData, appendBuilderCode } from './lib/wagmi';
 import {
   LayoutDashboard, Gamepad2, Repeat, MessageSquare,
   Code2, CheckCircle2, Wallet, LogOut,
@@ -99,6 +99,7 @@ function MainApp() {
   }, []);
 
   const isLoggingRef = useRef<boolean>(false);
+  
   const handleGameComplete = async (game: string, score: number) => {
     if (isLoggingRef.current) return;
     isLoggingRef.current = true;
@@ -109,36 +110,28 @@ function MainApp() {
     if (address && isConnected) {
       try {
         toast.loading("Securing score on Base...", { id: toastId });
-        const txData = createLogData(`SCORE:${game}:${score}`);
+        
+        const rawHex = createLogData(`SCORE:${game}:${score}`);
+        const finalTxData = appendBuilderCode(rawHex as `0x${string}`);
 
-        const gas = await publicClient?.estimateGas({
-          account: address as `0x${string}`,
-          to: address as `0x${string}`,
-          data: txData as `0x${string}`,
-          value: 0n,
-        }).catch(() => 35000n);
-
-        // ✅ FIX: Added value: 0n to explicitly tell wagmi not to fail formatting
+        // Sending to a safe Burn EOA guarantees gas estimation succeeds for Smart Wallets
         const hash = await sendTransactionAsync({
-          to: address as `0x${string}`,
-          data: txData as `0x${string}`,
+          to: "0x000000000000000000000000000000000000dEaD", 
+          data: finalTxData,
           value: 0n, 
-          gas: (gas! * 120n) / 100n,
         });
 
-        if (publicClient && hash) {
+        if (publicClient) {
           await publicClient.waitForTransactionReceipt({ hash, timeout: 30000 });
         }
 
-        await supabase.from('leaderboards').insert([
-          { game_id: game, user_address: address, score, tx_hash: hash }
-        ]);
-
+        await supabase.from('leaderboards').insert([{ game_id: game, user_address: address, score, tx_hash: hash }]);
         toast.success("Score Immutable on Base!", { id: toastId });
+
       } catch (err: any) {
         let msg = "Logging failed - Saved as Guest";
         if (err.message?.toLowerCase().includes('insufficient funds')) {
-           msg = "Insufficient Base ETH for gas. Saved as Guest.";
+           msg = "Empty Wallet: Need tiny ETH fraction for gas.";
         }
         toast.error(msg, { id: toastId });
       }
