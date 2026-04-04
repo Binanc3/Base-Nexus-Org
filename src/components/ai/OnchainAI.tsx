@@ -1,30 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Bot, Send, Database, Sparkles, Loader2 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
-import { cn } from '@/src/lib/utils';
-import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
-import { stringToHex } from 'viem';
-import { ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
-import { toast } from 'sonner';
-
-// ✅ FIX 1: Vite uses import.meta.env, not process.env
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || '' });
+import { Bot, Send, Loader2 } from 'lucide-react';
 
 export function OnchainAI() {
-  const { address } = useAccount();
-  const { sendTransactionAsync } = useSendTransaction();
-  const publicClient = usePublicClient();
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
   const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<{role: string, content: string}[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoggingOnchain, setIsLoggingOnchain] = useState(false);
-
-  // ✅ FIX 2: Auto-scroll to latest message
-  const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -35,160 +16,67 @@ export function OnchainAI() {
     setIsLoading(true);
 
     try {
-      // ✅ FIX 3: Correct Gemini model name
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: userMsg,
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("Missing API Key");
+
+      // FIX: Standard fetch bypasses the SDK CORS restrictions in Vite
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: userMsg }] }]
+        })
       });
 
-      setMessages(prev => [...prev, { role: 'ai', content: response.text || 'No response' }]);
+      const data = await response.json();
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+
+      setMessages(prev => [...prev, { role: 'ai', content: aiResponse }]);
     } catch (error) {
-      console.error('[AI Error]', error);
-      setMessages(prev => [...prev, {
-        role: 'ai',
-        content: 'Error generating response. Please try again.',
-      }]);
+      console.error(error);
+      setMessages(prev => [...prev, { role: 'ai', content: 'Connection error. Ensure your VITE_GEMINI_API_KEY is valid.' }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const logSessionOnchain = async () => {
-    if (!address || messages.length === 0 || isLoggingOnchain) return;
-
-    setIsLoggingOnchain(true);
-    try {
-      const lastMsg = messages[messages.length - 1].content.substring(0, 50);
-      const summary = `AI_SESSION:${messages.length}_MSGS:${lastMsg}...`;
-
-      // ✅ FIX 4: Removed unused `summaryHex` variable that was declared but never used
-      const logData = appendBuilderCode(stringToHex(summary));
-
-      toast.loading('Logging AI session onchain…', { id: 'ai-log' });
-
-      const hash = await sendTransactionAsync({
-        to: ONCHAIN_LOG_ADDRESS,
-        value: 0n,
-        data: logData,
-      });
-
-      toast.loading('Waiting for confirmation…', { id: 'ai-log' });
-
-      if (publicClient) {
-        const receipt = await publicClient.waitForTransactionReceipt({
-          hash,
-          timeout: 60_000,
-          pollingInterval: 3_000,
-        });
-
-        if (receipt.status === 'reverted') {
-          throw new Error('Transaction reverted onchain');
-        }
-      }
-
-      toast.success('AI Session Logged!', {
-        id: 'ai-log',
-        description: 'Your interaction summary is now permanently onchain.',
-      });
-
-    } catch (error) {
-      console.error('[OnchainLog Error]', error);
-
-      let description = 'Failed to log session.';
-      if (error instanceof Error) {
-        if (error.message.includes('User rejected') || error.message.includes('user rejected')) {
-          description = 'You rejected the transaction in your wallet.';
-        } else if (error.message.includes('insufficient funds')) {
-          description = 'Not enough ETH for gas fees.';
-        } else {
-          description = error.message.substring(0, 80);
-        }
-      }
-
-      toast.error('Logging Failed', { id: 'ai-log', description });
-    } finally {
-      setIsLoggingOnchain(false);
-    }
-  };
-
   return (
-    <GlassCard className="flex flex-col h-[600px] max-w-2xl mx-auto">
+    <div className="max-w-3xl mx-auto space-y-4">
+      <div className="flex items-center gap-3 mb-6">
+        <Bot className="w-8 h-8 text-blue-400" />
+        <h2 className="text-3xl font-bold text-white">Nexus AI Oracle</h2>
+      </div>
 
-      {/* ✅ FIX 5: `border-bottom` is not valid Tailwind — fixed to `border-b` */}
-      <div className="p-4 border-b border-white/10 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-blue-500/20 rounded-lg">
-            <Bot className="w-6 h-6 text-blue-400" />
-          </div>
-          <div>
-            <h3 className="font-bold text-white">Base AI Oracle</h3>
-            <p className="text-xs text-white/40">Onchain logging enabled</p>
-          </div>
+      <GlassCard className="h-[500px] flex flex-col p-4">
+        <div className="flex-1 overflow-y-auto space-y-4 p-4">
+          {messages.length === 0 && (
+            <div className="text-center text-white/40 mt-20">Ask the Oracle anything about Base, DeFi, or smart contracts...</div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} className={`p-4 rounded-2xl max-w-[80%] ${msg.role === 'user' ? 'bg-blue-600/20 text-blue-100 ml-auto' : 'bg-white/5 text-white mr-auto'}`}>
+              {msg.content}
+            </div>
+          ))}
+          {isLoading && (
+            <div className="bg-white/5 text-white/50 p-4 rounded-2xl max-w-[80%] mr-auto flex gap-2 items-center">
+              <Loader2 className="w-4 h-4 animate-spin" /> Thinking...
+            </div>
+          )}
         </div>
-        <Button
-          variant="outline"
-          className="text-xs flex items-center gap-2"
-          onClick={logSessionOnchain}
-          disabled={isLoggingOnchain || messages.length === 0 || !address}
-        >
-          {isLoggingOnchain
-            ? <Loader2 className="w-4 h-4 animate-spin" />
-            : <Database className="w-4 h-4" />
-          }
-          Log Session Onchain
-        </Button>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8">
-            <Sparkles className="w-12 h-12 text-blue-400/20 mb-4" />
-            <p className="text-white/60">
-              Start a conversation with the Base AI. Your interaction summaries
-              can be permanently stored on the Base network.
-            </p>
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              'max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed',
-              msg.role === 'user'
-                ? 'bg-blue-600 ml-auto text-white'
-                : 'bg-white/10 text-white'
-            )}
-          >
-            {msg.content}
-          </div>
-        ))}
-        {isLoading && (
-          <div className="text-white/40 text-sm animate-pulse flex items-center gap-2">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            AI is thinking…
-          </div>
-        )}
-        {/* ✅ FIX 6: Auto-scroll anchor */}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="p-4 border-t border-white/10 flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-          placeholder="Ask anything about Base…"
-          disabled={isLoading}
-          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white outline-none focus:border-blue-500/50 disabled:opacity-50"
-        />
-        <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
-          {isLoading
-            ? <Loader2 className="w-5 h-5 animate-spin" />
-            : <Send className="w-5 h-5" />
-          }
-        </Button>
-      </div>
-
-    </GlassCard>
+        <div className="flex gap-2 mt-4 pt-4 border-t border-white/10">
+          <input 
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Type your message..."
+            className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500/50"
+          />
+          <Button onClick={handleSend} disabled={isLoading || !input.trim()} className="px-6">
+            <Send className="w-5 h-5" />
+          </Button>
+        </div>
+      </GlassCard>
+    </div>
   );
 }
