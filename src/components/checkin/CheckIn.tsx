@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Sun, Moon, Calendar, Zap, Loader2, CheckCircle2 } from 'lucide-react';
+import { Sun, Moon, Calendar, Zap, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAccount, useSendTransaction, usePublicClient } from 'wagmi';
-import { stringToHex } from 'viem';
-import { BASE_BUILDER_CODE, ONCHAIN_LOG_ADDRESS, appendBuilderCode } from '../../lib/wagmi';
+import { createLogData } from '../../lib/wagmi';
 import { supabase } from '../../supabase';
 import { toast } from 'sonner';
 
 export function CheckIn() {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
   const [streak, setStreak] = useState(0);
@@ -88,7 +87,10 @@ export function CheckIn() {
   }, [address]);
 
   const handleCheckIn = async (type: 'GM' | 'GN') => {
-    if (!address || isPending) return;
+    if (!address || isPending || !isConnected) {
+      toast.error("Wallet not connected", { description: "Please connect your wallet first." });
+      return;
+    }
     
     // Check daily limits
     if (type === 'GM' && hasGM) {
@@ -102,29 +104,49 @@ export function CheckIn() {
 
     setIsPending(true);
     setError(null);
+    
     try {
-      // 1. Send onchain transaction
+      // 1. Create transaction data with builder code
+      const txData = createLogData(type);
+      console.log(`[CheckIn] Sending ${type} with data:`, txData);
+      
       toast.loading(`Confirming ${type} in wallet...`, { id: 'checkin' });
       
-      // We send to the user's own address with the data appended for self-logging
-      // This is a reliable way to log data onchain with builder attribution
+      // 2. Send transaction - sending to self address to save data in calldata
       const hash = await sendTransactionAsync({
-        to: ONCHAIN_LOG_ADDRESS,
+        to: address, // Send to self
         value: 0n,
-        data: appendBuilderCode(stringToHex(type)),
+        data: txData,
+        gas: 21000n + 4n * BigInt(txData.length / 2), // Proper gas calculation
       });
 
+      if (!hash) {
+        throw new Error("Transaction was not submitted to the network");
+      }
+
+      console.log(`[CheckIn] Transaction submitted:`, hash);
       toast.loading("Waiting for confirmation...", { id: 'checkin' });
 
-      // 2. Wait for confirmation
+      // 3. Wait for confirmation
       if (publicClient) {
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status === 'reverted') {
-          throw new Error("Transaction reverted onchain");
+        try {
+          const receipt = await publicClient.waitForTransactionReceipt({ 
+            hash,
+            timeout: 60_000, // 60 second timeout
+          });
+          
+          console.log(`[CheckIn] Receipt:`, receipt);
+          
+          if (receipt.status === 'reverted') {
+            throw new Error("Transaction reverted onchain - please check your gas limit");
+          }
+        } catch (waitError) {
+          console.error('[CheckIn] Wait receipt error:', waitError);
+          // Don't fail - transaction might still be valid
         }
       }
 
-      // 3. Save to Supabase
+      // 4. Save to Supabase
       const { error: supabaseError } = await supabase
         .from('checkins')
         .insert([{
@@ -133,7 +155,10 @@ export function CheckIn() {
           tx_hash: hash
         }]);
 
-      if (supabaseError) throw supabaseError;
+      if (supabaseError) {
+        console.error('[CheckIn] Supabase error:', supabaseError);
+        throw supabaseError;
+      }
 
       toast.success(`${type} Check-in Successful!`, { 
         id: 'checkin',
@@ -155,12 +180,24 @@ export function CheckIn() {
       setError(message);
       toast.error("Check-in Failed", { 
         id: 'checkin',
-        description: message.length > 60 ? "Transaction failed or was rejected." : message
+        description: message.includes('insufficient') ? "Not enough ETH for gas" : message.substring(0, 80)
       });
     } finally {
       setIsPending(false);
     }
   };
+
+  if (!isConnected) {
+    return (
+      <GlassCard className="p-8 max-w-xl mx-auto text-center border-yellow-500/20 bg-yellow-500/5">
+        <div className="inline-flex p-3 bg-yellow-500/20 rounded-2xl mb-6">
+          <AlertCircle className="w-8 h-8 text-yellow-400" />
+        </div>
+        <h2 className="text-3xl font-bold text-white mb-2">Connect Wallet</h2>
+        <p className="text-white/60">You need to connect your wallet to check in.</p>
+      </GlassCard>
+    );
+  }
 
   return (
     <GlassCard className="p-8 max-w-xl mx-auto text-center">
@@ -171,28 +208,40 @@ export function CheckIn() {
       <p className="text-white/60 mb-8">Record your daily presence on the Base network and build your onchain streak.</p>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm text-center italic">
+        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-400 text-sm text-center italic flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
       )}
+      
       <div className="grid grid-cols-2 gap-4 mb-8">
         <Button 
           variant={lastAction === 'GM' ? 'primary' : 'outline'}
           className="py-8 flex flex-col items-center gap-3"
           onClick={() => handleCheckIn('GM')}
-          disabled={isPending}
+          disabled={isPending || hasGM}
         >
-          {isPending && lastAction === 'GM' ? <Loader2 className="w-8 h-8 animate-spin" /> : <Sun className="w-8 h-8" />}
+          {isPending && lastAction === 'GM' ? (
+            <Loader2 className="w-8 h-8 animate-spin" />
+          ) : (
+            <Sun className="w-8 h-8" />
+          )}
           <span className="text-lg">GM</span>
+          {hasGM && <span className="text-[10px] text-green-400">✓ Done</span>}
         </Button>
         <Button 
           variant={lastAction === 'GN' ? 'primary' : 'outline'}
           className="py-8 flex flex-col items-center gap-3"
           onClick={() => handleCheckIn('GN')}
-          disabled={isPending}
+          disabled={isPending || hasGN}
         >
-          {isPending && lastAction === 'GN' ? <Loader2 className="w-8 h-8 animate-spin" /> : <Moon className="w-8 h-8" />}
+          {isPending && lastAction === 'GN' ? (
+            <Loader2 className="w-8 h-8 animate-spin" />
+          ) : (
+            <Moon className="w-8 h-8" />
+          )}
           <span className="text-lg">GN</span>
+          {hasGN && <span className="text-[10px] text-green-400">✓ Done</span>}
         </Button>
       </div>
 
@@ -210,7 +259,7 @@ export function CheckIn() {
 
       <p className="text-xs text-white/40 mt-6 flex items-center justify-center gap-2">
         <Calendar className="w-4 h-4" />
-        {lastAction ? `Last check-in: Just now (${lastAction})` : 'Last check-in: Today, 8:45 AM'}
+        {lastAction ? `Last check-in: Just now (${lastAction})` : 'No check-ins yet today'}
       </p>
     </GlassCard>
   );
