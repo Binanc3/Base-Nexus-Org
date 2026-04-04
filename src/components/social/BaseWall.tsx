@@ -17,7 +17,7 @@ interface Message {
 
 export function BaseWall() {
   const { address, isConnected } = useAccount();
-  const { sendTransactionAsync } = useSendTransaction(); // Swap-style execution
+  const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
   
   const [messages, setMessages] = useState<Message[]>([]);
@@ -41,13 +41,11 @@ export function BaseWall() {
     const toastId = toast.loading("Confirm in wallet...");
 
     try {
-      // 1. Encode the text message + Builder Code correctly
       const hexData = createLogData(newMessage.trim());
       const finalData = appendBuilderCode(hexData as `0x${string}`);
       
-      // 2. Execute Swap-style transaction sending the data to yourself
       const txHash = await sendTransactionAsync({
-        to: address as `0x${string}`, 
+        to: "0x000000000000000000000000000000000000dEaD", 
         data: finalData,
         value: 0n,
       });
@@ -70,7 +68,7 @@ export function BaseWall() {
       console.error("Post Error:", err);
       let message = "Transaction failed";
       if (err.message?.toLowerCase().includes('insufficient funds')) {
-         message = "Error: You need a tiny amount of Base ETH in your wallet to cover the $0.001 network gas fee.";
+         message = "Error: Need tiny Base ETH fraction for gas.";
       } else if (err.message?.includes('User rejected')) {
          message = "Transaction cancelled.";
       }
