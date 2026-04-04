@@ -19,7 +19,7 @@ interface DeployedContract {
 
 export function ContractDeployer() {
   const { address: userAddress } = useAccount();
-  const { sendTransactionAsync } = useSendTransaction(); // Swap-style execution engine
+  const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
 
   const [contractType, setContractType] = useState<'ERC20' | 'ERC721'>('ERC20');
@@ -48,9 +48,7 @@ export function ContractDeployer() {
     const newErrors: Record<string, string> = {};
     if (!formData.name.trim()) newErrors.name = 'Name is required';
     if (!formData.symbol.trim()) newErrors.symbol = 'Symbol is required';
-    if (contractType === 'ERC20') {
-      if (!formData.supply || Number(formData.supply) <= 0) newErrors.supply = 'Supply must be > 0';
-    }
+    if (contractType === 'ERC20' && (!formData.supply || Number(formData.supply) <= 0)) newErrors.supply = 'Supply must be > 0';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -79,17 +77,13 @@ export function ContractDeployer() {
       
       const formattedBytecode = (rawBytecode.startsWith('0x') ? rawBytecode : `0x${rawBytecode}`) as `0x${string}`;
 
-      // Encode the deployment properly (NO BUILDER HEX ATTACHED to prevent EVM corruption)
-      const deployData = encodeDeployData({
-        abi,
-        bytecode: formattedBytecode,
-        args,
-      });
+      // 1. Encode cleanly without builder code so EVM accepts it
+      const deployData = encodeDeployData({ abi, bytecode: formattedBytecode, args });
 
       setDeployStep('Confirm in wallet...');
       toast.loading("Awaiting wallet signature...", { id: toastId });
 
-      // OMITTING 'to:' TELLS THE BLOCKCHAIN TO CREATE A NEW CONTRACT
+      // 2. Execute swap-style deployment
       const hash = await sendTransactionAsync({
         data: deployData,
         value: 0n,
@@ -99,34 +93,31 @@ export function ContractDeployer() {
       toast.loading("Broadcasting to network...", { id: toastId });
 
       const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 60000 });
-      
-      if (receipt.status === 'reverted') {
-        throw new Error("Contract deployment reverted onchain");
+      if (receipt.status === 'reverted') throw new Error("Contract deployment reverted onchain");
+
+      // 3. Fix for Smart Wallets: Extract contract address from logs if it's an internal call
+      let finalAddress = receipt.contractAddress;
+      if (!finalAddress && receipt.logs && receipt.logs.length > 0) {
+        finalAddress = receipt.logs[0].address; // The newly deployed contract's emitted event
       }
 
-      const address = receipt.contractAddress;
-      if (!address) throw new Error("No contract address returned");
+      if (!finalAddress) throw new Error("Could not retrieve contract address from logs");
 
-      setDeployedAddress(address);
+      setDeployedAddress(finalAddress);
       
       try {
         await supabase.from('deployments').insert([{
           user_address: userAddress,
-          contract_address: address,
+          contract_address: finalAddress,
           contract_type: contractType,
           tx_hash: hash
         }]);
-      } catch (err) {
-        console.error("Supabase Error:", err);
-      }
+      } catch (err) {}
 
-      toast.success(`${contractType} Deployed Successfully!`, { 
-        id: toastId,
-        description: `View it live on BaseScan.`
-      });
+      toast.success(`${contractType} Deployed Successfully!`, { id: toastId });
 
       saveToHistory({
-        address,
+        address: finalAddress,
         name: formData.name,
         symbol: formData.symbol,
         type: contractType,
@@ -138,11 +129,8 @@ export function ContractDeployer() {
     } catch (error: any) {
       console.error('Deployment Error:', error);
       let msg = error.shortMessage || error.message || "Failed to deploy contract.";
-      if (msg.toLowerCase().includes('insufficient funds')) {
-         msg = "Insufficient Base ETH for deployment gas fees.";
-      } else if (msg.includes('User rejected')) {
-         msg = "Transaction cancelled in wallet.";
-      }
+      if (msg.toLowerCase().includes('insufficient funds')) msg = "Insufficient Base ETH for deployment gas fees.";
+      else if (msg.includes('User rejected')) msg = "Transaction cancelled in wallet.";
       toast.error("Deployment Failed", { id: toastId, description: msg });
     } finally {
       setIsDeploying(false);
@@ -231,7 +219,7 @@ export function ContractDeployer() {
             {history.length > 0 && <button onClick={() => setHistory([])} className="text-[10px] text-white/20 hover:text-red-400">Clear</button>}
           </div>
           {history.length === 0 ? <p className="text-xs text-white/30 italic text-center py-8">No deployments yet</p> : (
-            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar">
               {history.map((item, idx) => (
                 <div key={idx} className="p-3 bg-white/5 rounded-xl border border-white/5">
                   <div className="flex justify-between items-start mb-2">
