@@ -1,28 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, usePublicClient, useSendTransaction, useWriteContract, useSwitchChain } from 'wagmi';
+import { useAccount, usePublicClient, useSendTransaction, useWriteContract, useSwitchChain, useBalance } from 'wagmi';
 import { erc20Abi, formatUnits, parseUnits, type Address } from 'viem';
 import { toast } from 'sonner';
 import { GlassCard, Button } from '../ui/GlassUI';
-import { Settings, ArrowDown, ChevronDown, Route, Wallet, BarChart3, Search, X, PlusCircle, ArrowRightLeft, Globe } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Settings, ArrowDown, ChevronDown, Lock, Unlock, History, Activity, Search, X } from 'lucide-react';
 import { appendBuilderCode, hasBuilderCode } from '../../lib/wagmi';
 
 const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
-
-const NETWORKS = [
-  { id: 8453, name: 'Base', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png' },
-  { id: 1, name: 'Ethereum', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
-  { id: 42161, name: 'Arbitrum', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png' },
-  { id: 10, name: 'Optimism', logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png' }
-];
-
-const DEFAULT_TOKENS = [
-  { symbol: 'ETH', name: 'Ethereum', address: NATIVE_TOKEN_ADDRESS, decimals: 18, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png', chainId: 8453 },
-  { symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png', chainId: 8453 },
-  { symbol: 'cbBTC', name: 'Coinbase BTC', address: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf', decimals: 8, logo: 'https://dd.dexscreener.com/ds-data/tokens/base/0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.png', chainId: 8453 },
-  { symbol: 'DEGEN', name: 'Degen', address: '0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed', decimals: 18, logo: 'https://dd.dexscreener.com/ds-data/tokens/base/0x4ed4e862860bed51a9570b96d89af5e1b0efefed.png', chainId: 8453 },
-  { symbol: 'AERO', name: 'Aerodrome', address: '0x940181a94A35A4569E4529A3CDfB74e38FD98631', decimals: 18, logo: 'https://dd.dexscreener.com/ds-data/tokens/base/0x940181a94a35a4569e4529a3cdfb74e38fd98631.png', chainId: 8453 }
-];
 
 export function SwapSection() {
   const { address, chainId } = useAccount();
@@ -31,63 +15,65 @@ export function SwapSection() {
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
 
-  const [mode, setMode] = useState<'swap' | 'bridge'>('swap');
+  // Core State
+  const [tokens, setTokens] = useState<any[]>([]);
+  const [fromToken, setFromToken] = useState<any>(null);
+  const [toToken, setToToken] = useState<any>(null);
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState<any>(null);
-  const [isFetchingQuote, setIsFetchingQuote] = useState(false);
+  
+  // Advanced Features State
+  const [isAmountLocked, setIsAmountLocked] = useState(false);
+  const [slippage, setSlippage] = useState('0.5');
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // UI State
   const [isSwapping, setIsSwapping] = useState(false);
-  
-  const [fromChain, setFromChain] = useState(NETWORKS[0]);
-  const [toChain, setToChain] = useState(NETWORKS[0]);
-  const [fromToken, setFromToken] = useState(DEFAULT_TOKENS[0]);
-  const [toToken, setToToken] = useState(DEFAULT_TOKENS[1]);
-  
-  const [selectingType, setSelectingType] = useState<'fromToken'|'toToken'|'fromChain'|'toChain'|null>(null);
+  const [isFetchingQuote, setIsFetchingQuote] = useState(false);
+  const [selectingToken, setSelectingToken] = useState<'from' | 'to' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Balances mapped by token address
-  const [balances, setBalances] = useState<Record<string, string>>({});
-  
-  // Custom CA search
-  const [customToken, setCustomToken] = useState<any>(null);
 
-  // Fetch balances for list
-  const fetchBalances = useCallback(async () => {
-    if (!address || !publicClient) return;
-    const newBalances: Record<string, string> = {};
-    
-    for (const token of DEFAULT_TOKENS) {
+  // History & Stats
+  const [stats, setStats] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`swap_stats_${address}`) || '{"totalVolume":0,"history":[]}'); } 
+    catch { return { totalVolume: 0, history: [] }; }
+  });
+
+  // Fetch Full Token List from LI.FI
+  useEffect(() => {
+    const fetchAllTokens = async () => {
       try {
-        if (token.address === NATIVE_TOKEN_ADDRESS) {
-          const bal = await publicClient.getBalance({ address });
-          newBalances[token.address] = formatUnits(bal, 18);
-        } else {
-          const bal = await publicClient.readContract({
-            address: token.address as Address,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [address]
-          });
-          newBalances[token.address] = formatUnits(bal as bigint, token.decimals);
+        const res = await fetch('https://li.quest/v1/tokens?chains=base');
+        const data = await res.json();
+        const baseTokens = data.tokens[8453] || [];
+        setTokens(baseTokens);
+        if (baseTokens.length > 0) {
+          setFromToken(baseTokens.find((t:any) => t.symbol === 'ETH') || baseTokens[0]);
+          setToToken(baseTokens.find((t:any) => t.symbol === 'USDC') || baseTokens[1]);
         }
-      } catch (e) {
-        newBalances[token.address] = '0';
+      } catch (err) {
+        console.error("Failed to load tokens");
       }
-    }
-    setBalances(newBalances);
-  }, [address, publicClient]);
+    };
+    fetchAllTokens();
+  }, []);
 
-  useEffect(() => { fetchBalances(); }, [fetchBalances]);
+  const { data: fromBalance, refetch: refetchFromBalance } = useBalance({
+    address, token: fromToken?.address === NATIVE_TOKEN_ADDRESS ? undefined : fromToken?.address as Address,
+  });
+  const { refetch: refetchToBalance } = useBalance({
+    address, token: toToken?.address === NATIVE_TOKEN_ADDRESS ? undefined : toToken?.address as Address,
+  });
 
-  // Handle Quote
+  // Quote Fetcher
   useEffect(() => {
     const fetchQuote = async () => {
-      if (!amount || parseFloat(amount) <= 0 || !address) return setQuote(null);
+      if (!amount || parseFloat(amount) <= 0 || !address || !fromToken || !toToken) return setQuote(null);
       setIsFetchingQuote(true);
       try {
         const parsedAmount = parseUnits(amount, fromToken.decimals).toString();
-        const res = await fetch(`https://li.quest/v1/quote?fromChain=${fromChain.id}&toChain=${toChain.id}&fromToken=${fromToken.address}&toToken=${toToken.address}&fromAmount=${parsedAmount}&fromAddress=${address}`);
-        const data = await res.json();
+        const response = await fetch(`https://li.quest/v1/quote?fromChain=8453&toChain=8453&fromToken=${fromToken.address}&toToken=${toToken.address}&fromAmount=${parsedAmount}&fromAddress=${address}&slippage=${parseFloat(slippage) / 100}`);
+        const data = await response.json();
         setQuote(data.transactionRequest ? data : null);
       } catch {
         setQuote(null);
@@ -95,196 +81,195 @@ export function SwapSection() {
         setIsFetchingQuote(false);
       }
     };
-    const t = setTimeout(fetchQuote, 500);
-    return () => clearTimeout(t);
-  }, [amount, fromToken, toToken, fromChain, toChain, address]);
+    const timeoutId = setTimeout(fetchQuote, 400);
+    return () => clearTimeout(timeoutId);
+  }, [amount, fromToken, toToken, address, slippage]);
 
-  // Contract Search
-  useEffect(() => {
-    if (searchQuery.startsWith('0x') && searchQuery.length === 42) {
-      fetch(`https://li.quest/v1/token?chain=base&token=${searchQuery}`)
-        .then(r => r.json())
-        .then(d => { if (d.symbol) setCustomToken({...d, logo: d.logoURI || ''}); });
-    } else {
-      setCustomToken(null);
-    }
-  }, [searchQuery]);
+  const handlePercentage = (percent: number) => {
+    if (!fromBalance) return;
+    const total = Number(fromBalance.formatted);
+    // Leave a tiny bit of ETH for gas if maxing out native token
+    const val = (percent === 100 && fromToken.address === NATIVE_TOKEN_ADDRESS) ? Math.max(0, total - 0.002) : total * (percent / 100);
+    setAmount(val.toFixed(6).replace(/\.?0+$/, ''));
+  };
 
-  const executeTrade = async () => {
-    if (!quote || !address || !publicClient) return toast.error('Valid route required');
+  const handleSwap = async () => {
+    if (!quote || !address || !publicClient) return toast.error('Wait for a valid route');
     setIsSwapping(true);
-    const tId = toast.loading('Initiating...');
+    const toastId = toast.loading('Initializing swap…');
 
     try {
-      if (chainId !== fromChain.id) {
-        toast.loading(`Switching to ${fromChain.name}...`, { id: tId });
-        await switchChainAsync({ chainId: fromChain.id });
+      if (chainId !== 8453) {
+        toast.loading(`Switching to Base…`, { id: toastId });
+        await switchChainAsync({ chainId: 8453 });
       }
 
-      const rawData = quote.transactionRequest.data as `0x${string}`;
+      const rawData = (quote.transactionRequest.data as `0x${string}`) || '0x';
       const finalData = hasBuilderCode(rawData) ? rawData : appendBuilderCode(rawData);
 
       if (fromToken.address !== NATIVE_TOKEN_ADDRESS) {
-        toast.loading('Checking allowance...', { id: tId });
-        const allowance = await publicClient.readContract({
-          address: fromToken.address as Address,
-          abi: erc20Abi,
-          functionName: 'allowance',
-          args: [address, quote.estimate.approvalAddress]
-        });
+        toast.loading('Checking allowance…', { id: toastId });
+        const allowance = await publicClient.readContract({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'allowance', args: [address, quote.estimate.approvalAddress as Address] });
         if (allowance < BigInt(quote.estimate.fromAmount)) {
-          toast.loading('Approve token...', { id: tId });
-          const tx = await writeContractAsync({
-            address: fromToken.address as Address,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [quote.estimate.approvalAddress, BigInt(quote.estimate.fromAmount)]
-          });
-          await publicClient.waitForTransactionReceipt({ hash: tx });
+          toast.loading('Approve token in wallet…', { id: toastId });
+          const approveHash = await writeContractAsync({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'approve', args: [quote.estimate.approvalAddress as Address, BigInt(quote.estimate.fromAmount)] });
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
         }
       }
 
-      toast.loading('Confirming transaction...', { id: tId });
-      const txValue = quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n;
-      
+      toast.loading('Confirm swap in wallet…', { id: toastId });
       const hash = await sendTransactionAsync({
-        to: quote.transactionRequest.to as `0x${string}`,
+        to: quote.transactionRequest.to as Address,
         data: finalData,
-        value: txValue,
+        value: quote.transactionRequest.value ? BigInt(quote.transactionRequest.value) : 0n,
       });
 
-      toast.loading('Broadcasting...', { id: tId });
+      toast.loading('Processing on Base…', { id: toastId });
       await publicClient.waitForTransactionReceipt({ hash });
 
-      fetchBalances();
-      toast.success('Transaction Successful!', { id: tId });
-      setAmount('');
-    } catch (err: any) {
-      toast.error(err.message?.includes('funds') ? "Insufficient gas." : "Transaction failed or rejected.", { id: tId });
+      await Promise.all([refetchFromBalance(), refetchToBalance()]);
+      
+      // Update Stats & History
+      const usdValue = parseFloat(quote.estimate.fromAmountUSD || '0');
+      const newHistory = [{ hash, from: fromToken.symbol, to: toToken.symbol, amt: amount, usd: usdValue, date: new Date().toISOString() }, ...stats.history].slice(0, 10);
+      const newStats = { totalVolume: stats.totalVolume + usdValue, history: newHistory };
+      setStats(newStats);
+      localStorage.setItem(`swap_stats_${address}`, JSON.stringify(newStats));
+
+      toast.success('Swap completed successfully!', { id: toastId });
+      if (!isAmountLocked) setAmount('');
+    } catch (error: any) {
+      toast.error(error.message?.includes('funds') ? "Insufficient Base ETH for gas." : "Swap failed or rejected.", { id: toastId });
     } finally {
       setIsSwapping(false);
     }
   };
 
-  const currentFromBalance = balances[fromToken.address] || '0.00';
+  if (!fromToken || !toToken) return <div className="flex justify-center p-10"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00F0FF]"></div></div>;
+
+  const filteredTokens = tokens.filter(t => t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || t.name.toLowerCase().includes(searchQuery.toLowerCase()) || t.address.toLowerCase() === searchQuery.toLowerCase());
 
   return (
     <div className="w-full max-w-md mx-auto space-y-4">
-      {/* Mode Selector */}
-      <div className="flex bg-[#0a1224] p-1 rounded-xl border border-[#00F0FF]/20 shadow-[0_0_15px_rgba(0,240,255,0.1)]">
-        <button onClick={() => { setMode('swap'); setFromChain(NETWORKS[0]); setToChain(NETWORKS[0]); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'swap' ? 'bg-[#00F0FF]/10 text-[#00F0FF]' : 'text-zinc-500 hover:text-white'}`}>Swap</button>
-        <button onClick={() => setMode('bridge')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${mode === 'bridge' ? 'bg-[#B026FF]/10 text-[#B026FF]' : 'text-zinc-500 hover:text-white'}`}>Bridge</button>
+      {/* Header & Settings */}
+      <div className="flex justify-between items-center px-2">
+        <h2 className="text-xl font-black text-white tracking-widest">NEXUS ROUTER</h2>
+        <button onClick={() => setShowSettings(!showSettings)} className="text-zinc-400 hover:text-[#00F0FF] transition-colors"><Settings className="w-5 h-5" /></button>
       </div>
 
-      <GlassCard className="p-3 border-[#00F0FF]/20 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
-        {/* FROM BLOCK */}
-        <div className="bg-[#050b14] p-4 rounded-2xl border border-zinc-800 focus-within:border-[#00F0FF]/50 transition-colors">
-          <div className="flex justify-between text-xs mb-3 text-zinc-400">
-            <span>You Pay on {fromChain.name}</span>
-            <span className="flex items-center gap-1 cursor-pointer hover:text-[#00F0FF]" onClick={() => setAmount(currentFromBalance)}>
-              <Wallet className="w-3 h-3" /> {Number(currentFromBalance).toFixed(4)}
-            </span>
-          </div>
-          <div className="flex gap-4 items-center">
-            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.0" className="bg-transparent text-3xl font-black text-white outline-none w-full" />
-            <div className="flex flex-col gap-2">
-              {mode === 'bridge' && (
-                <button onClick={() => setSelectingType('fromChain')} className="flex items-center justify-between gap-2 bg-zinc-900 px-3 py-1.5 rounded-lg text-xs text-white border border-zinc-700">
-                  <img src={fromChain.logo} className="w-4 h-4 rounded-full" /> {fromChain.name} <ChevronDown className="w-3 h-3 text-zinc-400" />
-                </button>
-              )}
-              <button onClick={() => setSelectingType('fromToken')} className="flex items-center gap-2 bg-[#00F0FF]/10 hover:bg-[#00F0FF]/20 px-3 py-2 rounded-xl text-white font-bold border border-[#00F0FF]/30">
-                <img src={fromToken.logo} className="w-6 h-6 rounded-full" /> {fromToken.symbol} <ChevronDown className="w-4 h-4" />
-              </button>
+      {showSettings && (
+        <GlassCard className="p-4 border-[#00F0FF]/30 bg-[#050b14]">
+          <p className="text-xs font-bold text-zinc-400 mb-2 uppercase">Max Slippage</p>
+          <div className="flex gap-2">
+            {['0.1', '0.5', '1.0'].map(val => (
+              <button key={val} onClick={() => setSlippage(val)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${slippage === val ? 'bg-[#00F0FF] text-black' : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-700'}`}>{val}%</button>
+            ))}
+            <div className="relative flex-1">
+              <input type="number" value={slippage} onChange={(e) => setSlippage(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg py-1.5 px-2 text-xs text-white outline-none focus:border-[#00F0FF]" placeholder="Custom" />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500">%</span>
             </div>
           </div>
-          {quote && <div className="text-[10px] text-zinc-500 mt-2">${Number(quote.estimate.fromAmountUSD).toFixed(2)}</div>}
+        </GlassCard>
+      )}
+
+      <GlassCard className="p-3 border-[#00F0FF]/20 shadow-2xl bg-[#0a1224]">
+        {/* FROM BOX */}
+        <div className="bg-[#050b14] p-4 rounded-2xl border border-zinc-800">
+          <div className="flex justify-between text-xs mb-3">
+            <span className="text-zinc-400 font-bold uppercase">You Pay</span>
+            <span className="text-zinc-500">Bal: {fromBalance ? Number(fromBalance.formatted).toFixed(4) : '0.00'}</span>
+          </div>
+          
+          <div className="flex gap-4 items-center">
+            <div className="relative flex-1">
+              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isAmountLocked} placeholder="0.0" className="bg-transparent text-3xl font-black text-white outline-none w-full disabled:opacity-50" />
+            </div>
+            <button onClick={() => setSelectingToken('from')} className="flex items-center gap-2 bg-[#00F0FF]/10 hover:bg-[#00F0FF]/20 px-3 py-2 rounded-xl text-white font-bold border border-[#00F0FF]/30 shrink-0">
+              <img src={fromToken.logoURI || fromToken.logo} className="w-6 h-6 rounded-full" /> {fromToken.symbol} <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex justify-between items-center mt-3">
+            <div className="flex gap-1.5">
+              {[25, 50, 75, 100].map(pct => (
+                <button key={pct} onClick={() => handlePercentage(pct)} disabled={isAmountLocked} className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[10px] font-bold text-zinc-300 disabled:opacity-50">{pct === 100 ? 'MAX' : `${pct}%`}</button>
+              ))}
+            </div>
+            <button onClick={() => setIsAmountLocked(!isAmountLocked)} className={`p-1.5 rounded-md transition-colors ${isAmountLocked ? 'bg-red-500/20 text-red-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+              {isAmountLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
 
-        {/* SWAP ICON */}
+        {/* SWAP ARROW */}
         <div className="relative h-2 flex justify-center items-center z-10 my-2">
-          <button onClick={() => { setFromToken(toToken); setToToken(fromToken); if(mode==='bridge'){setFromChain(toChain); setToChain(fromChain);} }} className="bg-[#0a1224] p-2 rounded-xl border border-zinc-700 text-[#00F0FF] hover:rotate-180 transition-transform">
+          <button onClick={() => { setFromToken(toToken); setToToken(fromToken); }} className="bg-[#0a1224] p-2 rounded-xl border border-zinc-700 text-[#00F0FF] hover:rotate-180 transition-transform">
             <ArrowDown className="w-4 h-4" />
           </button>
         </div>
 
-        {/* TO BLOCK */}
+        {/* TO BOX */}
         <div className="bg-[#050b14] p-4 rounded-2xl border border-zinc-800">
-          <div className="flex justify-between text-xs mb-3 text-zinc-400">
-            <span>You Receive on {toChain.name}</span>
+          <div className="flex justify-between text-xs mb-3">
+            <span className="text-zinc-400 font-bold uppercase">You Receive</span>
+            <span className="text-zinc-500">Bal: {toToken.address === NATIVE_TOKEN_ADDRESS ? 'ETH' : 'Token'}</span>
           </div>
           <div className="flex gap-4 items-center">
             <input type="text" disabled value={quote ? formatUnits(BigInt(quote.estimate.toAmount), toToken.decimals) : ''} placeholder={isFetchingQuote ? "Routing..." : "0.0"} className="bg-transparent text-3xl font-black text-zinc-500 outline-none w-full" />
-            <div className="flex flex-col gap-2">
-              {mode === 'bridge' && (
-                <button onClick={() => setSelectingType('toChain')} className="flex items-center justify-between gap-2 bg-zinc-900 px-3 py-1.5 rounded-lg text-xs text-white border border-zinc-700">
-                  <img src={toChain.logo} className="w-4 h-4 rounded-full" /> {toChain.name} <ChevronDown className="w-3 h-3 text-zinc-400" />
-                </button>
-              )}
-              <button onClick={() => setSelectingType('toToken')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded-xl text-white font-bold border border-zinc-600">
-                <img src={toToken.logo} className="w-6 h-6 rounded-full" /> {toToken.symbol} <ChevronDown className="w-4 h-4" />
-              </button>
-            </div>
+            <button onClick={() => setSelectingToken('to')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded-xl text-white font-bold border border-zinc-600 shrink-0">
+              <img src={toToken.logoURI || toToken.logo} className="w-6 h-6 rounded-full" /> {toToken.symbol} <ChevronDown className="w-4 h-4" />
+            </button>
           </div>
+          {quote && <div className="text-[10px] text-[#00F0FF] mt-2 font-mono">≈ ${Number(quote.estimate.toAmountUSD).toFixed(2)} USD</div>}
         </div>
 
-        <Button onClick={executeTrade} disabled={isSwapping || isFetchingQuote || !amount} className="w-full mt-4 py-5 text-lg font-black bg-gradient-to-r from-[#00F0FF] to-[#B026FF] text-black hover:opacity-90">
-          {isSwapping ? 'Processing...' : isFetchingQuote ? 'Finding Best Route...' : !amount ? 'Enter Amount' : mode === 'bridge' ? 'Review Bridge' : 'Review Swap'}
+        <Button onClick={handleSwap} disabled={isSwapping || isFetchingQuote || !amount || !quote} className="w-full mt-4 py-5 text-lg font-black bg-gradient-to-r from-[#00F0FF] to-[#B026FF] text-black hover:opacity-90">
+          {isSwapping ? 'Executing Route...' : isFetchingQuote ? 'Finding Best Route...' : !amount ? 'Enter Amount' : 'Swap Now'}
         </Button>
       </GlassCard>
 
-      {/* Modals */}
+      {/* Stats & History Module */}
+      <GlassCard className="p-4 bg-[#050b14] border-zinc-800">
+        <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
+          <div className="flex items-center gap-2 text-zinc-400"><Activity className="w-4 h-4 text-[#B026FF]"/> <span className="text-xs font-bold uppercase">Total Volume</span></div>
+          <span className="text-sm font-black text-white">${stats.totalVolume.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+        </div>
+        <div className="flex items-center gap-2 text-zinc-400 mb-2"><History className="w-4 h-4 text-[#00F0FF]"/> <span className="text-xs font-bold uppercase">Recent Swaps</span></div>
+        {stats.history.length === 0 ? <p className="text-xs text-zinc-600 italic">No swap history yet.</p> : (
+          <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+            {stats.history.map((tx:any, i:number) => (
+              <div key={i} className="flex justify-between items-center bg-[#0a1224] p-2 rounded-lg border border-zinc-800/50">
+                <span className="text-xs text-white font-bold">{tx.amt} {tx.from} ➔ {tx.to}</span>
+                <a href={`https://basescan.org/tx/${tx.hash}`} target="_blank" rel="noreferrer" className="text-[10px] text-[#00F0FF] hover:underline">${tx.usd.toFixed(2)}</a>
+              </div>
+            ))}
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Token Selector Modal */}
       <AnimatePresence>
-        {selectingType && (
+        {selectingToken && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <GlassCard className="w-full max-w-sm p-4 bg-[#0a1224] border border-[#00F0FF]/30 h-[600px] flex flex-col">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-white text-lg">{selectingType.includes('Chain') ? 'Select Network' : 'Select Token'}</h3>
-                <button onClick={() => setSelectingType(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
+                <h3 className="font-bold text-white text-lg">Select Token</h3>
+                <button onClick={() => setSelectingToken(null)} className="text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
               </div>
-
-              {!selectingType.includes('Chain') && (
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                  <input type="text" placeholder="Search name or 0x..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-[#050b14] border border-zinc-700 rounded-xl pl-9 pr-4 py-3 text-sm text-white focus:border-[#00F0FF]/50 outline-none" />
-                </div>
-              )}
-
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input type="text" placeholder="Search name or paste 0x..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-[#050b14] border border-zinc-700 rounded-xl pl-9 pr-4 py-3 text-sm text-white focus:border-[#00F0FF]/50 outline-none" />
+              </div>
               <div className="overflow-y-auto space-y-1 flex-1 custom-scrollbar pr-2">
-                {selectingType.includes('Chain') ? (
-                  NETWORKS.map(net => (
-                    <button key={net.id} onClick={() => { selectingType === 'fromChain' ? setFromChain(net) : setToChain(net); setSelectingType(null); }} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-800 text-left">
-                      <img src={net.logo} className="w-8 h-8 rounded-full" />
-                      <span className="font-bold text-white">{net.name}</span>
-                    </button>
-                  ))
-                ) : (
-                  <>
-                    {!customToken && DEFAULT_TOKENS.filter(t => t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || t.address.toLowerCase() === searchQuery.toLowerCase()).map(token => (
-                      <button key={token.address} onClick={() => { selectingType === 'fromToken' ? setFromToken(token) : setToToken(token); setSelectingType(null); }} className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-zinc-800 text-left group">
-                        <div className="flex items-center gap-3">
-                          <img src={token.logo} className="w-8 h-8 rounded-full border border-zinc-700" />
-                          <div>
-                            <div className="font-bold text-white group-hover:text-[#00F0FF]">{token.symbol}</div>
-                            <div className="text-[10px] text-zinc-500">{token.name}</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm text-white font-mono">{Number(balances[token.address] || 0).toFixed(4)}</div>
-                        </div>
-                      </button>
-                    ))}
-                    {customToken && (
-                      <button onClick={() => { selectingType === 'fromToken' ? setFromToken(customToken) : setToToken(customToken); setSelectingType(null); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#00F0FF]/10 border border-[#00F0FF]/30 text-left mt-2">
-                        <img src={customToken.logo} className="w-8 h-8 rounded-full" />
-                        <div>
-                          <div className="font-bold text-white">{customToken.symbol} <span className="text-[8px] bg-[#B026FF] px-1 rounded ml-1">Import</span></div>
-                          <div className="text-[10px] text-zinc-400 truncate w-32">{customToken.address}</div>
-                        </div>
-                      </button>
-                    )}
-                  </>
-                )}
+                {filteredTokens.map((token:any) => (
+                  <button key={token.address} onClick={() => { selectingToken === 'from' ? setFromToken(token) : setToToken(token); setSelectingToken(null); setSearchQuery(''); }} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-zinc-800 text-left group">
+                    <img src={token.logoURI || token.logo} className="w-8 h-8 rounded-full border border-zinc-700" onError={(e) => { (e.target as any).src = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png'; }} />
+                    <div>
+                      <div className="font-bold text-white group-hover:text-[#00F0FF]">{token.symbol}</div>
+                      <div className="text-[10px] text-zinc-500">{token.name}</div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </GlassCard>
           </motion.div>
