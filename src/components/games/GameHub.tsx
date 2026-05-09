@@ -54,7 +54,7 @@ const getMousePos = (canvas: HTMLCanvasElement, evt: any) => {
 };
 
 // ==========================================
-// 1. BASE NINJA (Burst Spawns & Improved Pacing)
+// 1. BASE NINJA (-40% Speed & Smooth Physics)
 // ==========================================
 export function SlicingGame({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -76,7 +76,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
     let currentScore = 0;
     let lives = 3;
     let frame = 0;
-    let difficultyTimer = 80; // Faster start
+    let difficultyTimer = 100;
     let speedMult = 1.0; 
     let isDrawing = false;
     
@@ -85,16 +85,21 @@ export function SlicingGame({ onComplete, onExit }: any) {
     let sliceCombo = 0;
 
     const spawnEntity = () => {
-      speedMult = Math.min(2.0, 1.0 + (currentScore * 0.003)); 
+      speedMult = Math.min(1.5, 1.0 + (currentScore * 0.002)); 
       const isPowerup = Math.random() < 0.08;
+      
+      // 40% REDUCED INITIAL VELOCITY
+      const baseVy = -(Math.random() * 2 + 6.5) * speedMult; 
+      const baseVx = (Math.random() - 0.5) * 2.5;
+
       if (isPowerup) {
         const perkTypes = [{e:'❄️', c:'#00F0FF', p:'freeze'}, {e:'🔥', c:'#FF8C00', p:'frenzy'}, {e:'💚', c:'#00FF00', p:'heal'}];
         const t = perkTypes[Math.floor(Math.random() * perkTypes.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*4, vy: -(Math.random()*3 + 10) * speedMult, emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.1, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: baseVx, vy: baseVy, emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.05, sliced: false, sliceFrames: 0 });
       } else {
         const types = [{ e: '🍎', c: '#ef4444' }, { e: '🍊', c: '#f97316' }, { e: '🍉', c: '#22c55e' }, { e: '💣', c: '#1e293b', type: 'bomb' }];
         const t = types[Math.floor(Math.random() * types.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*5, vy: -(Math.random()*3 + 11) * speedMult, emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.2, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: baseVx, vy: baseVy, emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.1, sliced: false, sliceFrames: 0 });
       }
     };
 
@@ -112,11 +117,10 @@ export function SlicingGame({ onComplete, onExit }: any) {
           if (perkTimer <= 0) activePerk = 'none';
         }
 
-        // BURST SPAWNING
         if (frame % Math.floor(difficultyTimer) === 0) {
-          const spawnCount = Math.floor(Math.random() * 3) + 1; // Spawns 1 to 3 fruits at once
+          const spawnCount = Math.floor(Math.random() * 2) + 1; // 1 to 2 fruits max
           for(let s=0; s<spawnCount; s++) spawnEntity();
-          if (difficultyTimer > 35) difficultyTimer -= 1; // Gets faster
+          if (difficultyTimer > 50) difficultyTimer -= 1; 
         }
 
         ctx.font = "24px Arial"; ctx.textAlign = 'right';
@@ -155,9 +159,11 @@ export function SlicingGame({ onComplete, onExit }: any) {
 
         for (let i = fruits.length - 1; i >= 0; i--) {
           const f = fruits[i];
-          const perkMod = activePerk === 'freeze' ? 0.25 : 1; // Slower freeze
+          const perkMod = activePerk === 'freeze' ? 0.3 : 1;
           f.x += f.vx * perkMod; f.y += f.vy * perkMod; 
-          f.vy += (0.15 * speedMult) * perkMod; 
+          
+          // 40% REDUCED GRAVITY (from 0.15 to 0.09)
+          f.vy += (0.09 * speedMult) * perkMod; 
           f.rot += f.vRot;
 
           if (f.sliced) {
@@ -188,7 +194,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
 
           if (trail.length > 0) {
             const last = trail[trail.length - 1];
-            const hitRadius = activePerk === 'frenzy' ? f.size + 30 : f.size + 10; // Better hit detection
+            const hitRadius = activePerk === 'frenzy' ? f.size + 30 : f.size + 15;
             if (Math.hypot(f.x - last.x, f.y - last.y) < hitRadius) {
               if (f.type === 'bomb') {
                 lives--; addPopup(f.x, f.y, "BOOM!", "#FF003C"); sliceCombo = 0;
@@ -197,7 +203,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
                 f.sliced = true;
               } else if (f.type === 'perk') {
                 if (f.perk === 'heal') { lives = Math.min(3, lives + 1); addPopup(f.x, f.y, "+1 LIFE", "#00FF00"); }
-                else { activePerk = f.perk; perkTimer = 500; addPopup(f.x, f.y, "POWER UP!", f.color); } // Longer duration
+                else { activePerk = f.perk; perkTimer = 500; addPopup(f.x, f.y, "POWER UP!", f.color); }
                 f.sliced = true;
               } else {
                 f.sliced = true; sliceCombo++;
@@ -241,7 +247,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-[#00F0FF] mb-2 uppercase tracking-widest">Base Ninja</h3>
-            <p className="text-white/80 mb-6 text-sm">3 Lives. Combo slices for power-ups!</p>
+            <p className="text-white/80 mb-6 text-sm">Balanced Speed. 3 Lives. Combo slices for power-ups!</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-[#00F0FF] text-black hover:bg-white font-bold">PLAY NOW</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back to Arcade</Button>
           </div>
@@ -268,7 +274,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 2. BASE RUNNER (Cyber-Obstacles & Vector Assets)
+// 2. BASE RUNNER (Cityscape & Vehicle Obstacles)
 // ==========================================
 export function EndlessRunner({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -283,7 +289,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 
     let animId: number;
     let player = { y: 0, vy: 0, isJumping: false };
-    let obstacles: {x: number, w: number, h: number, type: 'mine'|'laser'|'drone', passed: boolean}[] = [];
+    let obstacles: {x: number, w: number, h: number, type: string, emoji: string, passed: boolean}[] = [];
     let enemyBullets: {x: number, y: number}[] = [];
     let currentScore = 0;
     let speed = 7.0;
@@ -295,28 +301,44 @@ export function EndlessRunner({ onComplete, onExit }: any) {
     const loop = () => {
       if (!ctx || !canvas || !isPlaying || isGameOver) return;
       try {
+        // Deep Sky Background
         ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        bgX -= speed * 0.2;
+        bgX -= speed * 0.3;
+        
+        // Detailed Parallax City Buildings
         ctx.fillStyle = '#0f172a';
-        for(let i=0; i<10; i++) {
-          let x = (bgX + i * 150) % (canvas.width + 150);
-          if (x < -150) x += canvas.width + 150;
-          ctx.fillRect(x, canvas.height - 150, 80, 150);
+        for(let i=0; i<12; i++) {
+          let x = (bgX + i * 120) % (canvas.width + 120);
+          if (x < -120) x += canvas.width + 120;
+          let bh = 100 + (i % 3) * 60; // Varying heights
+          ctx.fillRect(x, canvas.height - bh - 40, 90, bh);
+          
+          // Building Windows
+          ctx.fillStyle = 'rgba(0, 240, 255, 0.1)';
+          for(let r=0; r<4; r++) {
+            for(let c=0; c<3; c++) {
+              if (Math.random() > 0.3) ctx.fillRect(x + 10 + c*25, canvas.height - bh - 20 + r*20, 15, 10);
+            }
+          }
+          ctx.fillStyle = '#0f172a'; // Reset for next building
         }
         
+        // Ground
         ctx.fillStyle = '#050b14'; ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
         ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF'; ctx.fillStyle = '#B026FF';
         ctx.fillRect(0, canvas.height - 42, canvas.width, 3); ctx.shadowBlur = 0;
 
         frame++;
         
-        // Spawn Objects
-        const spawnRate = Math.max(45, 80 - Math.floor(currentScore/25));
+        // Spawner
+        const spawnRate = Math.max(45, 85 - Math.floor(currentScore/20));
         if (frame % spawnRate === 0) {
-          let type: 'mine'|'laser'|'drone' = 'mine'; let w = 30; let h = 30;
-          if (currentScore > 100 && Math.random() < 0.3) { type = 'laser'; w=15; h=80; }
-          if (currentScore > 200 && Math.random() < 0.3) { type = 'drone'; w=40; h=20; }
-          obstacles.push({ x: canvas.width, w, h, type, passed: false });
+          let type = 'barricade'; let emoji = '🚧'; let w = 40; let h = 35;
+          
+          if (currentScore > 100 && Math.random() < 0.4) { type = 'vehicle'; emoji = '🚔'; w = 50; h = 40; }
+          if (currentScore > 200 && Math.random() < 0.3) { type = 'drone'; emoji = '🚁'; w = 50; h = 40; }
+
+          obstacles.push({ x: canvas.width, w, h, type, emoji, passed: false });
         }
 
         player.y += player.vy; player.vy -= 0.85;
@@ -325,45 +347,36 @@ export function EndlessRunner({ onComplete, onExit }: any) {
         const px = 100;
         const py = canvas.height - 40 - 35 - player.y;
         
-        // Draw Player (Cyber Ninja)
+        // Player
         ctx.font = "35px Arial"; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
         ctx.save(); ctx.translate(px, py); ctx.rotate(player.isJumping ? -0.2 : 0);
         ctx.fillText("🥷", 0, 0); ctx.restore();
 
-        // Enemy Bullets
-        ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#00F0FF';
+        // Enemy Drone Lasers
+        ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
           const b = enemyBullets[i];
-          b.x -= speed; b.y += 4; 
-          ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill();
-          if (px < b.x + 6 && px + 30 > b.x - 6 && py < b.y + 6 && py + 35 > b.y - 6) { setIsGameOver(true); return; }
+          b.x -= speed + 2; b.y += 3; 
+          ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
+          if (px < b.x + 4 && px + 30 > b.x - 4 && py < b.y + 4 && py + 35 > b.y - 4) { setIsGameOver(true); return; }
           if (b.y > canvas.height) enemyBullets.splice(i, 1);
         }
         ctx.shadowBlur = 0;
 
-        // Obstacles (Drawn Custom)
+        // Obstacles (Emojis)
         for (let i = obstacles.length - 1; i >= 0; i--) {
           const o = obstacles[i]; o.x -= speed;
           let oy = canvas.height - 40 - o.h;
           
-          if (o.type === 'mine') {
-            ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 15; ctx.shadowColor = '#FF003C';
-            ctx.beginPath(); ctx.arc(o.x + o.w/2, oy + o.h/2, o.w/2, 0, Math.PI*2); ctx.fill();
-            // Pulse effect
-            ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(o.x + o.w/2, oy + o.h/2, (o.w/2) * Math.abs(Math.sin(frame*0.1)), 0, Math.PI*2); ctx.stroke();
-            ctx.shadowBlur = 0;
-          } else if (o.type === 'laser') {
-            ctx.fillStyle = '#FF8C00'; ctx.shadowBlur = 20; ctx.shadowColor = '#FF8C00';
-            ctx.fillRect(o.x, oy, o.w, o.h); ctx.shadowBlur = 0;
-          } else if (o.type === 'drone') {
+          if (o.type === 'drone') {
             oy = canvas.height - 40 - 120 + Math.sin(frame*0.1)*15;
-            ctx.fillStyle = '#B026FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF';
-            ctx.beginPath(); ctx.ellipse(o.x + o.w/2, oy + o.h/2, o.w/2, o.h/2, 0, 0, Math.PI*2); ctx.fill();
-            ctx.shadowBlur = 0;
             if (Math.random() < 0.015 && o.x > px) enemyBullets.push({x: o.x + 20, y: oy + 20});
           }
 
-          if (px < o.x + o.w - 5 && px + 30 > o.x + 5 && py < oy + o.h - 5 && py + 35 > oy + 5) {
+          ctx.font = `${Math.max(o.w, o.h)}px Arial`;
+          ctx.fillText(o.emoji, o.x, oy);
+
+          if (px < o.x + o.w - 10 && px + 30 > o.x + 10 && py < oy + o.h - 10 && py + 35 > oy + 10) {
             setIsGameOver(true); return;
           }
 
@@ -398,7 +411,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-[#B026FF] mb-2 uppercase tracking-widest">Base Runner</h3>
-            <p className="text-white/60 mb-6 text-sm">Dodge Cyber-Mines. Drones drop Plasma at 200+.</p>
+            <p className="text-white/60 mb-6 text-sm">Jump the barricades. Evade drone fire.</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-[#B026FF] text-white font-bold">INITIALIZE</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back</Button>
           </div>
@@ -422,7 +435,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 3. NEON DEFENDER (Powerups & Vector Graphics)
+// 3. NEON DEFENDER (Restored Characters & 2-Hit Bosses)
 // ==========================================
 export function NeonDefender({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -440,14 +453,16 @@ export function NeonDefender({ onComplete, onExit }: any) {
     let lives = 3;
     let invulnTimer = 0;
     
-    // Active Player Perks
+    // Powerups
     let activeShield = 0;
     let activeRapid = 0;
     let activeSpread = 0;
 
     let bullets: {x: number, y: number, dx: number, dy: number}[] = [];
     let enemyBullets: {x: number, y: number}[] = [];
-    let enemies: {x: number, y: number, r: number, type: 'scout'|'hunter', rot: number, hp: number}[] = [];
+    
+    // Enemies use Emojis again, Bosses take 2 hits
+    let enemies: {x: number, y: number, r: number, type: 'grunt'|'brute'|'hunter', emoji: string, hp: number}[] = [];
     let powerups: {x: number, y: number, type: 'shield'|'rapid'|'spread', color: string}[] = [];
     
     let currentScore = 0;
@@ -461,13 +476,11 @@ export function NeonDefender({ onComplete, onExit }: any) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         frame++;
 
-        // Timers
         if (invulnTimer > 0) invulnTimer--;
         if (activeShield > 0) activeShield--;
         if (activeRapid > 0) activeRapid--;
         if (activeSpread > 0) activeSpread--;
 
-        // UI
         ctx.font = "24px Arial"; ctx.textAlign = 'right';
         let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
         ctx.fillText(hearts, canvas.width - 20, 40);
@@ -481,14 +494,19 @@ export function NeonDefender({ onComplete, onExit }: any) {
           ctx.fillText(perkText + "ACTIVE", canvas.width/2, 40);
         }
 
-        // Enemy Spawner
         let spawnRate = Math.max(30, 80 - Math.floor(currentScore / 20));
         if (frame % spawnRate === 0) {
-          const isHunter = currentScore > 150 && Math.random() < 0.4;
-          enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r: isHunter ? 25 : 20, type: isHunter ? 'hunter' : 'scout', rot: 0, hp: isHunter ? 2 : 1 });
+          const rand = Math.random();
+          // The Hunters (Bosses) now definitively take 2 hits
+          if (currentScore > 150 && rand < 0.3) {
+             enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r: 35, type: 'hunter', emoji: '🛸', hp: 2 });
+          } else if (currentScore > 50 && rand < 0.5) {
+             enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r: 35, type: 'brute', emoji: '👹', hp: 3 });
+          } else {
+             enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r: 25, type: 'grunt', emoji: '👾', hp: 1 });
+          }
         }
 
-        // Player Auto-Fire (Handles Rapid & Spread)
         const fireRate = activeRapid > 0 ? 6 : 14;
         if (frame - lastFire > fireRate) {
           bullets.push({ x: playerX, y: canvas.height - 50, dx: 0, dy: -15 });
@@ -499,12 +517,11 @@ export function NeonDefender({ onComplete, onExit }: any) {
           lastFire = frame;
         }
 
-        // Draw Player
         if (invulnTimer === 0 || Math.floor(frame / 5) % 2 === 0) {
           ctx.save(); ctx.translate(playerX, canvas.height - 40);
           
           if (activeShield > 0) {
-            ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2);
+            ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2);
             ctx.strokeStyle = '#00F0FF'; ctx.lineWidth = 2; ctx.stroke();
           }
 
@@ -515,14 +532,13 @@ export function NeonDefender({ onComplete, onExit }: any) {
           ctx.restore();
         }
 
-        // Powerups Draw & Logic
         for (let i = powerups.length - 1; i >= 0; i--) {
           const p = powerups[i]; p.y += 3;
           ctx.fillStyle = p.color; ctx.shadowBlur = 15; ctx.shadowColor = p.color;
           ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
           
           if (Math.hypot(p.x - playerX, p.y - (canvas.height - 40)) < 25) {
-            if (p.type === 'shield') activeShield = 600; // 10s
+            if (p.type === 'shield') activeShield = 600;
             if (p.type === 'rapid') activeRapid = 450;
             if (p.type === 'spread') activeSpread = 450;
             powerups.splice(i, 1); continue;
@@ -530,7 +546,6 @@ export function NeonDefender({ onComplete, onExit }: any) {
           if (p.y > canvas.height) powerups.splice(i, 1);
         }
 
-        // Player Bullets
         ctx.fillStyle = '#FFF'; ctx.shadowBlur = 10; ctx.shadowColor = '#FFF';
         for (let i = bullets.length - 1; i >= 0; i--) {
           const b = bullets[i]; b.x += b.dx; b.y += b.dy; ctx.fillRect(b.x - 2, b.y, 4, 15);
@@ -538,7 +553,6 @@ export function NeonDefender({ onComplete, onExit }: any) {
         }
         ctx.shadowBlur = 0;
 
-        // Enemy Bullets
         ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
           const b = enemyBullets[i]; b.y += 7; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
@@ -551,43 +565,41 @@ export function NeonDefender({ onComplete, onExit }: any) {
         }
         ctx.shadowBlur = 0;
 
-        // Enemies
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         for (let i = enemies.length - 1; i >= 0; i--) {
           const e = enemies[i];
-          e.rot += 0.05;
           
           if (e.type === 'hunter') {
-            e.y += 1.5 + (currentScore * 0.002);
+            e.y += 1.0 + (currentScore * 0.002);
             e.x += (playerX > e.x ? 1 : -1) * 0.8; 
-            if (Math.random() < 0.02) enemyBullets.push({ x: e.x, y: e.y + 10 });
-            
-            ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
-            ctx.strokeStyle = '#FF003C'; ctx.lineWidth = 3; ctx.shadowBlur = 15; ctx.shadowColor = '#FF003C';
-            ctx.beginPath(); ctx.moveTo(0, -e.r); ctx.lineTo(e.r, e.r); ctx.lineTo(-e.r, e.r); ctx.closePath(); ctx.stroke();
-            ctx.restore();
+            if (Math.random() < 0.02) enemyBullets.push({ x: e.x, y: e.y + 15 });
           } else {
-            e.y += 2.0 + (currentScore * 0.003); 
-            ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
-            ctx.strokeStyle = '#B026FF'; ctx.lineWidth = 3; ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF';
-            ctx.beginPath(); ctx.rect(-e.r/2, -e.r/2, e.r, e.r); ctx.stroke();
-            ctx.restore();
+            e.y += (e.type === 'brute' ? 1 : 2) + (currentScore * 0.003); 
           }
+
+          // Visual hit indication (flashes slightly if damaged but alive)
+          ctx.globalAlpha = (e.hp < (e.type==='brute'?3:e.type==='hunter'?2:1)) ? 0.5 : 1;
+          ctx.font = `${e.r * 1.5}px Arial`; 
+          ctx.fillText(e.emoji, e.x, e.y);
+          ctx.globalAlpha = 1;
 
           let hit = false;
           for (let j = bullets.length - 1; j >= 0; j--) {
             if (Math.hypot(bullets[j].x - e.x, bullets[j].y - e.y) < e.r + 5) {
-              bullets.splice(j, 1); e.hp--;
+              bullets.splice(j, 1); 
+              e.hp--;
               if (e.hp <= 0) {
                 enemies.splice(i, 1);
-                currentScore += (e.type === 'hunter' ? 20 : 10); setScore(currentScore);
-                // Powerup Drop Logic (10% chance)
+                currentScore += (e.type === 'brute' ? 30 : e.type === 'hunter' ? 20 : 10); 
+                setScore(currentScore);
+                
                 if (Math.random() < 0.1) {
                   const pTypes = [{t:'shield',c:'#00F0FF'}, {t:'rapid',c:'#FFD700'}, {t:'spread',c:'#FF00FF'}];
                   const pick = pTypes[Math.floor(Math.random()*pTypes.length)];
                   powerups.push({ x: e.x, y: e.y, type: pick.t as any, color: pick.c });
                 }
-                hit = true;
               }
+              hit = true;
               break;
             }
           }
@@ -621,7 +633,7 @@ export function NeonDefender({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-white mb-2 uppercase tracking-widest drop-shadow-[0_0_15px_rgba(0,240,255,1)]">Neon Defender</h3>
-            <p className="text-white/80 mb-6 text-sm">Drag to Move. Destroy Vectors for Power-ups.</p>
+            <p className="text-white/80 mb-6 text-sm">Bosses (🛸) take 2 hits and fire back.</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-transparent border-2 border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black font-bold">SCRAMBLE SHIP</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back</Button>
           </div>
