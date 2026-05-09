@@ -41,16 +41,28 @@ export function Leaderboard({ gameId }: { gameId: string }) {
   );
 }
 
-// Coordinate Mapper
+// CRASH FIX: Bulletproof coordinate mapper that prevents null-pointer exceptions on touch release
 const getMousePos = (canvas: HTMLCanvasElement, evt: any) => {
   const rect = canvas.getBoundingClientRect();
-  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
-  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
-  return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
+  let clientX = evt.clientX || 0;
+  let clientY = evt.clientY || 0;
+  
+  if (evt.touches && evt.touches.length > 0) {
+    clientX = evt.touches[0].clientX;
+    clientY = evt.touches[0].clientY;
+  } else if (evt.changedTouches && evt.changedTouches.length > 0) {
+    clientX = evt.changedTouches[0].clientX;
+    clientY = evt.changedTouches[0].clientY;
+  }
+  
+  return { 
+    x: (clientX - rect.left) * (canvas.width / rect.width), 
+    y: (clientY - rect.top) * (canvas.height / rect.height) 
+  };
 };
 
 // ==========================================
-// 1. BASE NINJA (Combos, Perks, 3 Lives)
+// 1. BASE NINJA (Paced Starts, Combos, Perks, 3 Lives)
 // ==========================================
 export function SlicingGame({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -68,161 +80,149 @@ export function SlicingGame({ onComplete, onExit }: any) {
     let particles: any[] = [];
     let popups: any[] = [];
     let trail: {x: number, y: number}[] = [];
+    
     let currentScore = 0;
     let lives = 3;
     let frame = 0;
-    let difficultyTimer = 100;
+    let difficultyTimer = 150; // Starts very slow
+    let speedMult = 0.8; // Reduced initial gravity/velocity
     let isDrawing = false;
     
-    // Perk States
     let activePerk: 'none' | 'freeze' | 'frenzy' = 'none';
     let perkTimer = 0;
     let sliceCombo = 0;
 
     const spawnEntity = () => {
-      const isPowerup = Math.random() < 0.08; // 8% chance to drop a perk orb
+      // Scale speed up safely as score increases
+      speedMult = Math.min(1.8, 0.8 + (currentScore * 0.002)); 
+
+      const isPowerup = Math.random() < 0.08;
       if (isPowerup) {
         const perkTypes = [{e:'❄️', c:'#00F0FF', p:'freeze'}, {e:'🔥', c:'#FF8C00', p:'frenzy'}, {e:'💚', c:'#00FF00', p:'heal'}];
         const t = perkTypes[Math.floor(Math.random() * perkTypes.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*3, vy: -(Math.random()*4+10), emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.1, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*3, vy: -(Math.random()*2 + 8) * speedMult, emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.1, sliced: false, sliceFrames: 0 });
       } else {
         const types = [{ e: '🍎', c: '#ef4444' }, { e: '🍊', c: '#f97316' }, { e: '🍉', c: '#22c55e' }, { e: '💣', c: '#1e293b', type: 'bomb' }];
         const t = types[Math.floor(Math.random() * types.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*4, vy: -(Math.random()*4+10), emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.2, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*4, vy: -(Math.random()*2 + 9) * speedMult, emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.2, sliced: false, sliceFrames: 0 });
       }
     };
 
-    const addPopup = (x: number, y: number, text: string, color: string) => {
-      popups.push({ x, y, text, color, life: 1 });
-    };
+    const addPopup = (x: number, y: number, text: string, color: string) => { popups.push({ x, y, text, color, life: 1 }); };
 
     const loop = () => {
-      if (!isPlaying || isGameOver) return;
-      
-      // Background & Freeze Tint
-      ctx.fillStyle = activePerk === 'freeze' ? 'rgba(0, 50, 100, 0.2)' : '#050b14';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      frame++;
+      if (!ctx || !canvas || !isPlaying || isGameOver) return;
+      try {
+        ctx.fillStyle = activePerk === 'freeze' ? 'rgba(0, 50, 100, 0.2)' : '#050b14';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        frame++;
 
-      // Manage Perks
-      if (perkTimer > 0) {
-        perkTimer--;
-        if (perkTimer <= 0) activePerk = 'none';
-      }
+        if (perkTimer > 0) {
+          perkTimer--;
+          if (perkTimer <= 0) activePerk = 'none';
+        }
 
-      if (frame % difficultyTimer === 0) {
-        spawnEntity();
-        if (difficultyTimer > 40) difficultyTimer -= 1;
-      }
+        if (frame % Math.floor(difficultyTimer) === 0) {
+          spawnEntity();
+          if (difficultyTimer > 50) difficultyTimer -= 2; // Smooth acceleration
+        }
 
-      // Draw UI (Lives)
-      ctx.font = "24px Arial"; ctx.textAlign = 'right';
-      let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
-      ctx.fillText(hearts, canvas.width - 20, 40);
-      
-      if (activePerk !== 'none') {
-        ctx.fillStyle = activePerk === 'freeze' ? '#00F0FF' : '#FF8C00';
-        ctx.textAlign = 'center'; ctx.font = "bold 20px Arial";
-        ctx.fillText(`${activePerk.toUpperCase()} ACTIVE!`, canvas.width/2, 40);
-      }
+        ctx.font = "24px Arial"; ctx.textAlign = 'right';
+        let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
+        ctx.fillText(hearts, canvas.width - 20, 40);
+        
+        if (activePerk !== 'none') {
+          ctx.fillStyle = activePerk === 'freeze' ? '#00F0FF' : '#FF8C00';
+          ctx.textAlign = 'center'; ctx.font = "bold 20px Arial";
+          ctx.fillText(`${activePerk.toUpperCase()} ACTIVE!`, canvas.width/2, 40);
+        }
 
-      // Popups
-      for (let i = popups.length - 1; i >= 0; i--) {
-        const p = popups[i];
-        p.y -= 2; p.life -= 0.02;
-        ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
-        ctx.font = "bold 24px Arial"; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-        if (p.life <= 0) popups.splice(i, 1);
-      }
-
-      // Particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life -= 0.02;
-        ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
-        if (p.life <= 0) particles.splice(i, 1);
-      }
-
-      // Trail
-      if (trail.length > 1) {
-        ctx.beginPath(); ctx.moveTo(trail[0].x, trail[0].y);
-        for (let i=1; i<trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
-        ctx.strokeStyle = activePerk === 'frenzy' ? '#FF8C00' : '#00F0FF'; 
-        ctx.lineWidth = activePerk === 'frenzy' ? 12 : 6; ctx.lineCap = 'round';
-        ctx.shadowBlur = 15; ctx.shadowColor = ctx.strokeStyle;
-        ctx.stroke(); ctx.shadowBlur = 0;
-      }
-
-      // Entities
-      for (let i = fruits.length - 1; i >= 0; i--) {
-        const f = fruits[i];
-        const speedMod = activePerk === 'freeze' ? 0.3 : 1;
-        f.x += f.vx * speedMod; f.y += f.vy * speedMod; f.vy += 0.15 * speedMod; f.rot += f.vRot;
-
-        if (f.sliced) {
-          f.sliceFrames++;
-          ctx.globalAlpha = Math.max(0, 1 - f.sliceFrames/20);
-          ctx.font = `${f.size}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.save(); ctx.translate(f.x - f.sliceFrames*2, f.y); ctx.rotate(f.rot - f.sliceFrames*0.1); ctx.fillText(f.emoji, 0, 0); ctx.restore();
-          ctx.save(); ctx.translate(f.x + f.sliceFrames*2, f.y); ctx.rotate(f.rot + f.sliceFrames*0.1); ctx.fillText(f.emoji, 0, 0); ctx.restore();
+        for (let i = popups.length - 1; i >= 0; i--) {
+          const p = popups[i]; p.y -= 2; p.life -= 0.02;
+          ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
+          ctx.font = "bold 24px Arial"; ctx.textAlign = 'center'; ctx.fillText(p.text, p.x, p.y);
           ctx.globalAlpha = 1;
-          if (f.sliceFrames > 20) fruits.splice(i, 1);
-          continue;
+          if (p.life <= 0) popups.splice(i, 1);
         }
 
-        ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
-        if (f.type === 'bomb') { ctx.shadowBlur = 20; ctx.shadowColor = '#FF003C'; }
-        if (f.type === 'perk') { ctx.shadowBlur = 20; ctx.shadowColor = f.color; }
-        ctx.font = `${f.size}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(f.emoji, 0, 0); ctx.restore();
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life -= 0.02;
+          ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
 
-        // Missed Logic
-        if (f.y > canvas.height + 100) {
-          if (f.type === 'fruit') {
-            lives--; addPopup(canvas.width/2, canvas.height/2, "MISS!", "#FF003C");
-            if (lives <= 0) { setIsGameOver(true); return; }
+        if (trail.length > 1) {
+          ctx.beginPath(); ctx.moveTo(trail[0].x, trail[0].y);
+          for (let i=1; i<trail.length; i++) ctx.lineTo(trail[i].x, trail[i].y);
+          ctx.strokeStyle = activePerk === 'frenzy' ? '#FF8C00' : '#00F0FF'; 
+          ctx.lineWidth = activePerk === 'frenzy' ? 12 : 6; ctx.lineCap = 'round';
+          ctx.shadowBlur = 15; ctx.shadowColor = ctx.strokeStyle;
+          ctx.stroke(); ctx.shadowBlur = 0;
+        }
+
+        for (let i = fruits.length - 1; i >= 0; i--) {
+          const f = fruits[i];
+          const perkMod = activePerk === 'freeze' ? 0.3 : 1;
+          f.x += f.vx * perkMod; f.y += f.vy * perkMod; 
+          f.vy += (0.12 * speedMult) * perkMod; // Gravity
+          f.rot += f.vRot;
+
+          if (f.sliced) {
+            f.sliceFrames++;
+            ctx.globalAlpha = Math.max(0, 1 - f.sliceFrames/20);
+            ctx.font = `${f.size}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.save(); ctx.translate(f.x - f.sliceFrames*2, f.y); ctx.rotate(f.rot - f.sliceFrames*0.1); ctx.fillText(f.emoji, 0, 0); ctx.restore();
+            ctx.save(); ctx.translate(f.x + f.sliceFrames*2, f.y); ctx.rotate(f.rot + f.sliceFrames*0.1); ctx.fillText(f.emoji, 0, 0); ctx.restore();
+            ctx.globalAlpha = 1;
+            if (f.sliceFrames > 20) fruits.splice(i, 1);
+            continue;
           }
-          fruits.splice(i, 1);
-          continue;
-        }
 
-        // Slice Logic
-        if (trail.length > 0) {
-          const last = trail[trail.length - 1];
-          const hitRadius = activePerk === 'frenzy' ? f.size + 20 : f.size;
-          if (Math.hypot(f.x - last.x, f.y - last.y) < hitRadius) {
-            
-            if (f.type === 'bomb') {
-              lives--; addPopup(f.x, f.y, "BOOM!", "#FF003C"); sliceCombo = 0;
-              for(let p=0; p<20; p++) particles.push({x: f.x, y: f.y, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, size: Math.random()*5+2, color: '#FF003C', life: 1});
+          ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
+          if (f.type === 'bomb') { ctx.shadowBlur = 20; ctx.shadowColor = '#FF003C'; }
+          if (f.type === 'perk') { ctx.shadowBlur = 20; ctx.shadowColor = f.color; }
+          ctx.font = `${f.size}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(f.emoji, 0, 0); ctx.restore();
+
+          if (f.y > canvas.height + 100) {
+            if (f.type === 'fruit') {
+              lives--; addPopup(canvas.width/2, canvas.height/2, "MISS!", "#FF003C");
               if (lives <= 0) { setIsGameOver(true); return; }
-              f.sliced = true;
-            } else if (f.type === 'perk') {
-              if (f.perk === 'heal') { lives = Math.min(3, lives + 1); addPopup(f.x, f.y, "+1 LIFE", "#00FF00"); }
-              else { activePerk = f.perk; perkTimer = 300; addPopup(f.x, f.y, "POWER UP!", f.color); }
-              f.sliced = true;
-            } else {
-              f.sliced = true;
-              sliceCombo++;
-              let pts = (activePerk === 'frenzy' ? 20 : 10);
-              
-              if (sliceCombo >= 3) {
-                pts += sliceCombo * 5; // Combo multiplier
-                addPopup(f.x, f.y, `${sliceCombo}x COMBO!`, "#FFD700");
+            }
+            fruits.splice(i, 1);
+            continue;
+          }
+
+          if (trail.length > 0) {
+            const last = trail[trail.length - 1];
+            const hitRadius = activePerk === 'frenzy' ? f.size + 20 : f.size;
+            if (Math.hypot(f.x - last.x, f.y - last.y) < hitRadius) {
+              if (f.type === 'bomb') {
+                lives--; addPopup(f.x, f.y, "BOOM!", "#FF003C"); sliceCombo = 0;
+                for(let p=0; p<20; p++) particles.push({x: f.x, y: f.y, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, size: Math.random()*5+2, color: '#FF003C', life: 1});
+                if (lives <= 0) { setIsGameOver(true); return; }
+                f.sliced = true;
+              } else if (f.type === 'perk') {
+                if (f.perk === 'heal') { lives = Math.min(3, lives + 1); addPopup(f.x, f.y, "+1 LIFE", "#00FF00"); }
+                else { activePerk = f.perk; perkTimer = 300; addPopup(f.x, f.y, "POWER UP!", f.color); }
+                f.sliced = true;
+              } else {
+                f.sliced = true; sliceCombo++;
+                let pts = (activePerk === 'frenzy' ? 20 : 10);
+                if (sliceCombo >= 3) { pts += sliceCombo * 5; addPopup(f.x, f.y, `${sliceCombo}x COMBO!`, "#FFD700"); }
+                currentScore += pts; setScore(currentScore);
+                for(let p=0; p<10; p++) particles.push({x: f.x, y: f.y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, size: Math.random()*4+2, color: f.color, life: 1});
               }
-              currentScore += pts; setScore(currentScore);
-              for(let p=0; p<10; p++) particles.push({x: f.x, y: f.y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, size: Math.random()*4+2, color: f.color, life: 1});
             }
           }
         }
-      }
-      
-      if (trail.length > 0 && !isDrawing) trail.shift();
-      if (trail.length > (activePerk === 'frenzy' ? 20 : 10)) trail.shift(); 
-      
-      animId = requestAnimationFrame(loop);
+        
+        if (trail.length > 0 && !isDrawing) trail.shift();
+        if (trail.length > (activePerk === 'frenzy' ? 20 : 10)) trail.shift(); 
+        
+        animId = requestAnimationFrame(loop);
+      } catch(e) { console.error(e); setIsGameOver(true); }
     };
 
     const down = (e:any) => { isDrawing = true; sliceCombo = 0; trail.push(getMousePos(canvas, e)); };
@@ -276,7 +276,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 2. BASE RUNNER (Difficulty Spikes & Lasers)
+// 2. BASE RUNNER (Character Assets & Drones Shoot Back)
 // ==========================================
 export function EndlessRunner({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -291,87 +291,98 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 
     let animId: number;
     let player = { y: 0, vy: 0, isJumping: false };
-    let obstacles: {x: number, w: number, h: number, type: 'ground'|'drone'|'laser', passed: boolean}[] = [];
+    let obstacles: {x: number, w: number, h: number, type: string, emoji: string, passed: boolean}[] = [];
+    let enemyBullets: {x: number, y: number}[] = [];
     let currentScore = 0;
-    let speed = 6;
+    let speed = 6.5;
     let frame = 0;
     let bgX = 0;
 
     const jump = () => { if (!player.isJumping) { player.vy = 16; player.isJumping = true; } };
 
     const loop = () => {
-      if (!isPlaying || isGameOver) return;
-      
-      // Cyber City Background
-      ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      bgX -= speed * 0.2;
-      ctx.fillStyle = '#0f172a';
-      for(let i=0; i<10; i++) {
-        let x = (bgX + i * 150) % (canvas.width + 150);
-        if (x < -150) x += canvas.width + 150;
-        ctx.fillRect(x, canvas.height - 150, 80, 150);
-      }
-      
-      // Neon Floor
-      ctx.fillStyle = '#050b14'; ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
-      ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF'; ctx.fillStyle = '#B026FF';
-      ctx.fillRect(0, canvas.height - 42, canvas.width, 3); ctx.shadowBlur = 0;
-
-      frame++;
-      
-      // Spawning Logic (Gets harder)
-      const spawnRate = Math.max(40, 90 - Math.floor(currentScore/20));
-      if (frame % spawnRate === 0) {
-        let type: 'ground'|'drone'|'laser' = 'ground';
-        if (currentScore > 150 && Math.random() < 0.3) type = 'drone';
-        if (currentScore > 300 && Math.random() < 0.2) type = 'laser';
+      if (!ctx || !canvas || !isPlaying || isGameOver) return;
+      try {
+        ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        bgX -= speed * 0.2;
+        ctx.fillStyle = '#0f172a';
+        for(let i=0; i<10; i++) {
+          let x = (bgX + i * 150) % (canvas.width + 150);
+          if (x < -150) x += canvas.width + 150;
+          ctx.fillRect(x, canvas.height - 150, 80, 150);
+        }
         
-        if (type === 'ground') obstacles.push({ x: canvas.width, w: 25, h: 40 + Math.random()*20, type, passed: false });
-        if (type === 'drone') obstacles.push({ x: canvas.width, w: 40, h: 40, type, passed: false });
-        if (type === 'laser') obstacles.push({ x: canvas.width, w: 10, h: 80, type, passed: false });
-      }
+        ctx.fillStyle = '#050b14'; ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+        ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF'; ctx.fillStyle = '#B026FF';
+        ctx.fillRect(0, canvas.height - 42, canvas.width, 3); ctx.shadowBlur = 0;
 
-      // Player Physics
-      player.y += player.vy; player.vy -= 0.8;
-      if (player.y <= 0) { player.y = 0; player.vy = 0; player.isJumping = false; }
-
-      const px = 100;
-      const py = canvas.height - 40 - 30 - player.y;
-      
-      // Draw Player
-      ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 20; ctx.shadowColor = '#00F0FF';
-      ctx.fillRect(px, py, 30, 30); ctx.shadowBlur = 0;
-
-      // Obstacles
-      for (let i = obstacles.length - 1; i >= 0; i--) {
-        const o = obstacles[i];
-        o.x -= speed;
+        frame++;
         
-        let oy = 0;
-        if (o.type === 'ground') {
-          oy = canvas.height - 40 - o.h;
-          ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 15; ctx.shadowColor = '#FF003C';
-          ctx.fillRect(o.x, oy, o.w, o.h); ctx.shadowBlur = 0;
-        } else if (o.type === 'drone') {
-          oy = canvas.height - 40 - 90 + Math.sin(frame*0.1)*20; // Hovering
-          ctx.font = "30px Arial"; ctx.fillText("🛸", o.x, oy + 25);
-          o.h = 30; // hit box
-        } else if (o.type === 'laser') {
-          oy = canvas.height - 40 - 100; // High laser
-          ctx.fillStyle = '#FF8C00'; ctx.shadowBlur = 20; ctx.shadowColor = '#FF8C00';
-          ctx.fillRect(o.x, oy, o.w, o.h); ctx.shadowBlur = 0;
+        // Dynamic Spawner
+        const spawnRate = Math.max(45, 90 - Math.floor(currentScore/20));
+        if (frame % spawnRate === 0) {
+          let type = 'barrel'; let emoji = '🛢️'; let w = 30; let h = 40;
+          
+          if (currentScore > 100 && Math.random() < 0.4) { type = 'spider'; emoji = '🕷️'; w=40; h=35; }
+          if (currentScore > 200 && Math.random() < 0.3) { type = 'drone'; emoji = '🛸'; w=50; h=35; }
+
+          obstacles.push({ x: canvas.width, w, h, type, emoji, passed: false });
         }
 
-        // Collision
-        if (px < o.x + o.w && px + 30 > o.x && py < oy + o.h && py + 30 > oy) {
-          setIsGameOver(true); return;
+        player.y += player.vy; player.vy -= 0.8;
+        if (player.y <= 0) { player.y = 0; player.vy = 0; player.isJumping = false; }
+
+        const px = 100;
+        const py = canvas.height - 40 - 35 - player.y;
+        
+        // Draw Player (Hoverbiker / Ninja)
+        ctx.font = "40px Arial"; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(player.isJumping ? -0.2 : 0);
+        ctx.fillText("🥷", 0, 0); 
+        ctx.restore();
+
+        // Enemy Bullets (Drones Shoot Down)
+        ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
+        for (let i = enemyBullets.length - 1; i >= 0; i--) {
+          const b = enemyBullets[i];
+          b.x -= speed; b.y += 5; // Diagonal homing
+          ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI*2); ctx.fill();
+          
+          if (px < b.x + 5 && px + 30 > b.x - 5 && py < b.y + 5 && py + 40 > b.y - 5) {
+            setIsGameOver(true); return;
+          }
+          if (b.y > canvas.height) enemyBullets.splice(i, 1);
+        }
+        ctx.shadowBlur = 0;
+
+        // Obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          const o = obstacles[i];
+          o.x -= speed;
+          
+          let oy = canvas.height - 40 - o.h;
+          if (o.type === 'drone') {
+            oy = canvas.height - 40 - 110 + Math.sin(frame*0.1)*15;
+            // Drone fires randomly!
+            if (Math.random() < 0.02 && o.x > px) enemyBullets.push({x: o.x + 20, y: oy + 20});
+          }
+
+          ctx.font = `${Math.max(o.w, o.h)}px Arial`;
+          ctx.fillText(o.emoji, o.x, oy);
+
+          // Hitbox collision
+          if (px < o.x + o.w - 10 && px + 30 > o.x + 10 && py < oy + o.h - 10 && py + 35 > oy + 10) {
+            setIsGameOver(true); return;
+          }
+
+          if (o.x < px && !o.passed) { o.passed = true; currentScore += 10; setScore(currentScore); speed += 0.05; }
+          if (o.x < -100) obstacles.splice(i, 1);
         }
 
-        if (o.x < px && !o.passed) { o.passed = true; currentScore += 10; setScore(currentScore); speed += 0.05; }
-        if (o.x < -50) obstacles.splice(i, 1);
-      }
-
-      animId = requestAnimationFrame(loop);
+        animId = requestAnimationFrame(loop);
+      } catch(e) { console.error(e); setIsGameOver(true); }
     };
 
     if (isPlaying) {
@@ -397,7 +408,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-[#B026FF] mb-2 uppercase tracking-widest">Base Runner</h3>
-            <p className="text-white/60 mb-6 text-sm">Beware of Drones and Lasers at higher levels.</p>
+            <p className="text-white/60 mb-6 text-sm">Tap to Jump. Drones fire at Score 200+.</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-[#B026FF] text-white font-bold">INITIALIZE</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back</Button>
           </div>
@@ -421,7 +432,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 3. NEON DEFENDER (Alien Invaders, 3 Lives)
+// 3. NEON DEFENDER (Crash Proof + Alien Characters)
 // ==========================================
 export function NeonDefender({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -440,111 +451,112 @@ export function NeonDefender({ onComplete, onExit }: any) {
     let invulnTimer = 0;
     let bullets: {x: number, y: number}[] = [];
     let enemyBullets: {x: number, y: number}[] = [];
-    let enemies: {x: number, y: number, r: number, type: 'scout'|'hunter', emoji: string}[] = [];
+    let enemies: {x: number, y: number, r: number, type: 'grunt'|'brute'|'hunter', emoji: string, hp: number}[] = [];
     let currentScore = 0;
     let frame = 0;
     let lastFire = 0;
 
     const loop = () => {
-      if (!isPlaying || isGameOver) return;
-      ctx.fillStyle = 'rgba(5, 11, 20, 0.4)'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      frame++;
+      if (!ctx || !canvas || !isPlaying || isGameOver) return;
+      try {
+        ctx.fillStyle = 'rgba(5, 11, 20, 0.4)'; 
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        frame++;
 
-      if (invulnTimer > 0) invulnTimer--;
+        if (invulnTimer > 0) invulnTimer--;
 
-      // Draw UI (Lives)
-      ctx.font = "24px Arial"; ctx.textAlign = 'right';
-      let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
-      ctx.fillText(hearts, canvas.width - 20, 40);
+        ctx.font = "24px Arial"; ctx.textAlign = 'right';
+        let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
+        ctx.fillText(hearts, canvas.width - 20, 40);
 
-      // Enemy Spawner (Progressive Difficulty)
-      let spawnRate = Math.max(30, 90 - Math.floor(currentScore / 15));
-      if (frame % spawnRate === 0) {
-        const isHunter = currentScore > 200 && Math.random() < 0.3;
-        enemies.push({ 
-          x: Math.random()*(canvas.width-60)+30, y: -30, r: 20, 
-          type: isHunter ? 'hunter' : 'scout', 
-          emoji: isHunter ? '👾' : '🛸'
-        });
-      }
+        let spawnRate = Math.max(30, 90 - Math.floor(currentScore / 15));
+        if (frame % spawnRate === 0) {
+          const rand = Math.random();
+          let type: 'grunt'|'brute'|'hunter' = 'grunt';
+          let emoji = '👾'; let hp = 1; let r = 25;
+          
+          if (currentScore > 100 && rand < 0.2) { type = 'brute'; emoji = '👹'; hp = 3; r = 35; }
+          else if (currentScore > 200 && rand < 0.5) { type = 'hunter'; emoji = '🛸'; hp = 1; r = 25; }
 
-      // Auto-Fire
-      if (frame - lastFire > 12) {
-        bullets.push({ x: playerX, y: canvas.height - 50 }); lastFire = frame;
-      }
-
-      // Draw Player
-      if (invulnTimer === 0 || Math.floor(frame / 5) % 2 === 0) {
-        ctx.save(); ctx.translate(playerX, canvas.height - 40);
-        ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#00F0FF';
-        ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(-15, 15); ctx.lineTo(0, 5); ctx.lineTo(15, 15); ctx.closePath();
-        ctx.fill(); ctx.shadowBlur = 0;
-        ctx.fillStyle = '#FF003C'; ctx.beginPath(); ctx.moveTo(-5, 8); ctx.lineTo(0, 20 + Math.random()*10); ctx.lineTo(5, 8); ctx.fill();
-        ctx.restore();
-      }
-
-      // Player Bullets
-      ctx.fillStyle = '#FFF'; ctx.shadowBlur = 10; ctx.shadowColor = '#FFF';
-      for (let i = bullets.length - 1; i >= 0; i--) {
-        const b = bullets[i]; b.y -= 15; ctx.fillRect(b.x - 2, b.y, 4, 15);
-        if (b.y < 0) bullets.splice(i, 1);
-      }
-      ctx.shadowBlur = 0;
-
-      // Enemy Bullets
-      ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
-      for (let i = enemyBullets.length - 1; i >= 0; i--) {
-        const b = enemyBullets[i]; b.y += 8; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
-        
-        // Hit Player?
-        if (invulnTimer <= 0 && Math.hypot(b.x - playerX, b.y - (canvas.height - 40)) < 15) {
-          lives--; invulnTimer = 60; enemyBullets.splice(i, 1);
-          if (lives <= 0) { setIsGameOver(true); return; }
-          continue;
-        }
-        if (b.y > canvas.height) enemyBullets.splice(i, 1);
-      }
-      ctx.shadowBlur = 0;
-
-      // Enemies
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (let i = enemies.length - 1; i >= 0; i--) {
-        const e = enemies[i];
-        e.y += 2 + (currentScore * 0.003); // Speed scales
-        
-        // Hunters shoot back
-        if (e.type === 'hunter' && Math.random() < 0.015) {
-          enemyBullets.push({ x: e.x, y: e.y + 10 });
+          enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r, type, emoji, hp });
         }
 
-        ctx.font = "30px Arial"; ctx.fillText(e.emoji, e.x, e.y);
+        if (frame - lastFire > 12) {
+          bullets.push({ x: playerX, y: canvas.height - 50 }); lastFire = frame;
+        }
 
-        // Player Bullet Collision
-        let hit = false;
-        for (let j = bullets.length - 1; j >= 0; j--) {
-          if (Math.hypot(bullets[j].x - e.x, bullets[j].y - e.y) < e.r + 10) {
-            enemies.splice(i, 1); bullets.splice(j, 1);
-            currentScore += (e.type === 'hunter' ? 20 : 10); setScore(currentScore);
-            hit = true; break;
+        if (invulnTimer === 0 || Math.floor(frame / 5) % 2 === 0) {
+          ctx.save(); ctx.translate(playerX, canvas.height - 40);
+          ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#00F0FF';
+          ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(-15, 15); ctx.lineTo(0, 5); ctx.lineTo(15, 15); ctx.closePath();
+          ctx.fill(); ctx.shadowBlur = 0;
+          ctx.fillStyle = '#FF003C'; ctx.beginPath(); ctx.moveTo(-5, 8); ctx.lineTo(0, 20 + Math.random()*10); ctx.lineTo(5, 8); ctx.fill();
+          ctx.restore();
+        }
+
+        ctx.fillStyle = '#FFF'; ctx.shadowBlur = 10; ctx.shadowColor = '#FFF';
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const b = bullets[i]; b.y -= 15; ctx.fillRect(b.x - 2, b.y, 4, 15);
+          if (b.y < 0) bullets.splice(i, 1);
+        }
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
+        for (let i = enemyBullets.length - 1; i >= 0; i--) {
+          const b = enemyBullets[i]; b.y += 8; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
+          if (invulnTimer <= 0 && Math.hypot(b.x - playerX, b.y - (canvas.height - 40)) < 15) {
+            lives--; invulnTimer = 60; enemyBullets.splice(i, 1);
+            if (lives <= 0) { setIsGameOver(true); return; }
+            continue;
+          }
+          if (b.y > canvas.height) enemyBullets.splice(i, 1);
+        }
+        ctx.shadowBlur = 0;
+
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        for (let i = enemies.length - 1; i >= 0; i--) {
+          const e = enemies[i];
+          
+          if (e.type === 'hunter') {
+            e.y += 1.5 + (currentScore * 0.002);
+            e.x += (playerX > e.x ? 1 : -1) * 0.5; // Tracks player slowly
+            if (Math.random() < 0.015) enemyBullets.push({ x: e.x, y: e.y + 10 });
+          } else {
+            e.y += (e.type === 'brute' ? 1 : 2) + (currentScore * 0.003); 
+          }
+
+          ctx.font = `${e.r * 1.5}px Arial`; ctx.fillText(e.emoji, e.x, e.y);
+
+          let hit = false;
+          for (let j = bullets.length - 1; j >= 0; j--) {
+            if (Math.hypot(bullets[j].x - e.x, bullets[j].y - e.y) < e.r) {
+              bullets.splice(j, 1);
+              e.hp--;
+              if (e.hp <= 0) {
+                enemies.splice(i, 1);
+                currentScore += (e.type === 'brute' ? 30 : e.type === 'hunter' ? 20 : 10); 
+                setScore(currentScore);
+                hit = true;
+              }
+              break;
+            }
+          }
+          if (hit) continue;
+
+          if (invulnTimer <= 0 && Math.hypot(playerX - e.x, (canvas.height - 40) - e.y) < e.r + 15) {
+            lives--; invulnTimer = 60; enemies.splice(i, 1);
+            if (lives <= 0) { setIsGameOver(true); return; }
+          } else if (e.y > canvas.height + 50) {
+            enemies.splice(i, 1);
           }
         }
-        if (hit) continue;
 
-        // Crash into Player
-        if (invulnTimer <= 0 && Math.hypot(playerX - e.x, (canvas.height - 40) - e.y) < e.r + 15) {
-          lives--; invulnTimer = 60; enemies.splice(i, 1);
-          if (lives <= 0) { setIsGameOver(true); return; }
-        } else if (e.y > canvas.height + 50) {
-          enemies.splice(i, 1);
-        }
-      }
-
-      animId = requestAnimationFrame(loop);
+        animId = requestAnimationFrame(loop);
+      } catch(e) { console.error("Render Error:", e); setIsGameOver(true); }
     };
 
     const handleMove = (e: any) => { if(isPlaying) playerX = getMousePos(canvas, e).x; };
-    canvas.addEventListener('mousemove', handleMove); canvas.addEventListener('touchmove', handleMove);
+    canvas.addEventListener('mousemove', handleMove); canvas.addEventListener('touchmove', handleMove, { passive: true });
 
     if (isPlaying) loop();
 
