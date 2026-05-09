@@ -41,28 +41,20 @@ export function Leaderboard({ gameId }: { gameId: string }) {
   );
 }
 
-// CRASH FIX: Bulletproof coordinate mapper that prevents null-pointer exceptions on touch release
+// CRASH FIX: Bulletproof coordinate mapper
 const getMousePos = (canvas: HTMLCanvasElement, evt: any) => {
   const rect = canvas.getBoundingClientRect();
-  let clientX = evt.clientX || 0;
-  let clientY = evt.clientY || 0;
-  
+  let clientX = evt.clientX || 0; let clientY = evt.clientY || 0;
   if (evt.touches && evt.touches.length > 0) {
-    clientX = evt.touches[0].clientX;
-    clientY = evt.touches[0].clientY;
+    clientX = evt.touches[0].clientX; clientY = evt.touches[0].clientY;
   } else if (evt.changedTouches && evt.changedTouches.length > 0) {
-    clientX = evt.changedTouches[0].clientX;
-    clientY = evt.changedTouches[0].clientY;
+    clientX = evt.changedTouches[0].clientX; clientY = evt.changedTouches[0].clientY;
   }
-  
-  return { 
-    x: (clientX - rect.left) * (canvas.width / rect.width), 
-    y: (clientY - rect.top) * (canvas.height / rect.height) 
-  };
+  return { x: (clientX - rect.left) * (canvas.width / rect.width), y: (clientY - rect.top) * (canvas.height / rect.height) };
 };
 
 // ==========================================
-// 1. BASE NINJA (Paced Starts, Combos, Perks, 3 Lives)
+// 1. BASE NINJA (Burst Spawns & Improved Pacing)
 // ==========================================
 export function SlicingGame({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -84,8 +76,8 @@ export function SlicingGame({ onComplete, onExit }: any) {
     let currentScore = 0;
     let lives = 3;
     let frame = 0;
-    let difficultyTimer = 150; // Starts very slow
-    let speedMult = 0.8; // Reduced initial gravity/velocity
+    let difficultyTimer = 80; // Faster start
+    let speedMult = 1.0; 
     let isDrawing = false;
     
     let activePerk: 'none' | 'freeze' | 'frenzy' = 'none';
@@ -93,18 +85,16 @@ export function SlicingGame({ onComplete, onExit }: any) {
     let sliceCombo = 0;
 
     const spawnEntity = () => {
-      // Scale speed up safely as score increases
-      speedMult = Math.min(1.8, 0.8 + (currentScore * 0.002)); 
-
+      speedMult = Math.min(2.0, 1.0 + (currentScore * 0.003)); 
       const isPowerup = Math.random() < 0.08;
       if (isPowerup) {
         const perkTypes = [{e:'❄️', c:'#00F0FF', p:'freeze'}, {e:'🔥', c:'#FF8C00', p:'frenzy'}, {e:'💚', c:'#00FF00', p:'heal'}];
         const t = perkTypes[Math.floor(Math.random() * perkTypes.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*3, vy: -(Math.random()*2 + 8) * speedMult, emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.1, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*4, vy: -(Math.random()*3 + 10) * speedMult, emoji: t.e, color: t.c, type: 'perk', perk: t.p, size: 40, rot: 0, vRot: 0.1, sliced: false, sliceFrames: 0 });
       } else {
         const types = [{ e: '🍎', c: '#ef4444' }, { e: '🍊', c: '#f97316' }, { e: '🍉', c: '#22c55e' }, { e: '💣', c: '#1e293b', type: 'bomb' }];
         const t = types[Math.floor(Math.random() * types.length)];
-        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*4, vy: -(Math.random()*2 + 9) * speedMult, emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.2, sliced: false, sliceFrames: 0 });
+        fruits.push({ x: Math.random() * (canvas.width-100)+50, y: canvas.height+50, vx: (Math.random()-0.5)*5, vy: -(Math.random()*3 + 11) * speedMult, emoji: t.e, color: t.c, type: t.type || 'fruit', size: t.type === 'bomb' ? 35 : 45, rot: 0, vRot: (Math.random()-0.5)*0.2, sliced: false, sliceFrames: 0 });
       }
     };
 
@@ -122,9 +112,11 @@ export function SlicingGame({ onComplete, onExit }: any) {
           if (perkTimer <= 0) activePerk = 'none';
         }
 
+        // BURST SPAWNING
         if (frame % Math.floor(difficultyTimer) === 0) {
-          spawnEntity();
-          if (difficultyTimer > 50) difficultyTimer -= 2; // Smooth acceleration
+          const spawnCount = Math.floor(Math.random() * 3) + 1; // Spawns 1 to 3 fruits at once
+          for(let s=0; s<spawnCount; s++) spawnEntity();
+          if (difficultyTimer > 35) difficultyTimer -= 1; // Gets faster
         }
 
         ctx.font = "24px Arial"; ctx.textAlign = 'right';
@@ -163,9 +155,9 @@ export function SlicingGame({ onComplete, onExit }: any) {
 
         for (let i = fruits.length - 1; i >= 0; i--) {
           const f = fruits[i];
-          const perkMod = activePerk === 'freeze' ? 0.3 : 1;
+          const perkMod = activePerk === 'freeze' ? 0.25 : 1; // Slower freeze
           f.x += f.vx * perkMod; f.y += f.vy * perkMod; 
-          f.vy += (0.12 * speedMult) * perkMod; // Gravity
+          f.vy += (0.15 * speedMult) * perkMod; 
           f.rot += f.vRot;
 
           if (f.sliced) {
@@ -196,7 +188,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
 
           if (trail.length > 0) {
             const last = trail[trail.length - 1];
-            const hitRadius = activePerk === 'frenzy' ? f.size + 20 : f.size;
+            const hitRadius = activePerk === 'frenzy' ? f.size + 30 : f.size + 10; // Better hit detection
             if (Math.hypot(f.x - last.x, f.y - last.y) < hitRadius) {
               if (f.type === 'bomb') {
                 lives--; addPopup(f.x, f.y, "BOOM!", "#FF003C"); sliceCombo = 0;
@@ -205,7 +197,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
                 f.sliced = true;
               } else if (f.type === 'perk') {
                 if (f.perk === 'heal') { lives = Math.min(3, lives + 1); addPopup(f.x, f.y, "+1 LIFE", "#00FF00"); }
-                else { activePerk = f.perk; perkTimer = 300; addPopup(f.x, f.y, "POWER UP!", f.color); }
+                else { activePerk = f.perk; perkTimer = 500; addPopup(f.x, f.y, "POWER UP!", f.color); } // Longer duration
                 f.sliced = true;
               } else {
                 f.sliced = true; sliceCombo++;
@@ -276,7 +268,7 @@ export function SlicingGame({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 2. BASE RUNNER (Character Assets & Drones Shoot Back)
+// 2. BASE RUNNER (Cyber-Obstacles & Vector Assets)
 // ==========================================
 export function EndlessRunner({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -291,14 +283,14 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 
     let animId: number;
     let player = { y: 0, vy: 0, isJumping: false };
-    let obstacles: {x: number, w: number, h: number, type: string, emoji: string, passed: boolean}[] = [];
+    let obstacles: {x: number, w: number, h: number, type: 'mine'|'laser'|'drone', passed: boolean}[] = [];
     let enemyBullets: {x: number, y: number}[] = [];
     let currentScore = 0;
-    let speed = 6.5;
+    let speed = 7.0;
     let frame = 0;
     let bgX = 0;
 
-    const jump = () => { if (!player.isJumping) { player.vy = 16; player.isJumping = true; } };
+    const jump = () => { if (!player.isJumping) { player.vy = 16.5; player.isJumping = true; } };
 
     const loop = () => {
       if (!ctx || !canvas || !isPlaying || isGameOver) return;
@@ -318,62 +310,60 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 
         frame++;
         
-        // Dynamic Spawner
-        const spawnRate = Math.max(45, 90 - Math.floor(currentScore/20));
+        // Spawn Objects
+        const spawnRate = Math.max(45, 80 - Math.floor(currentScore/25));
         if (frame % spawnRate === 0) {
-          let type = 'barrel'; let emoji = '🛢️'; let w = 30; let h = 40;
-          
-          if (currentScore > 100 && Math.random() < 0.4) { type = 'spider'; emoji = '🕷️'; w=40; h=35; }
-          if (currentScore > 200 && Math.random() < 0.3) { type = 'drone'; emoji = '🛸'; w=50; h=35; }
-
-          obstacles.push({ x: canvas.width, w, h, type, emoji, passed: false });
+          let type: 'mine'|'laser'|'drone' = 'mine'; let w = 30; let h = 30;
+          if (currentScore > 100 && Math.random() < 0.3) { type = 'laser'; w=15; h=80; }
+          if (currentScore > 200 && Math.random() < 0.3) { type = 'drone'; w=40; h=20; }
+          obstacles.push({ x: canvas.width, w, h, type, passed: false });
         }
 
-        player.y += player.vy; player.vy -= 0.8;
+        player.y += player.vy; player.vy -= 0.85;
         if (player.y <= 0) { player.y = 0; player.vy = 0; player.isJumping = false; }
 
         const px = 100;
         const py = canvas.height - 40 - 35 - player.y;
         
-        // Draw Player (Hoverbiker / Ninja)
-        ctx.font = "40px Arial"; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.save();
-        ctx.translate(px, py);
-        ctx.rotate(player.isJumping ? -0.2 : 0);
-        ctx.fillText("🥷", 0, 0); 
-        ctx.restore();
+        // Draw Player (Cyber Ninja)
+        ctx.font = "35px Arial"; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.save(); ctx.translate(px, py); ctx.rotate(player.isJumping ? -0.2 : 0);
+        ctx.fillText("🥷", 0, 0); ctx.restore();
 
-        // Enemy Bullets (Drones Shoot Down)
-        ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
+        // Enemy Bullets
+        ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#00F0FF';
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
           const b = enemyBullets[i];
-          b.x -= speed; b.y += 5; // Diagonal homing
-          ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI*2); ctx.fill();
-          
-          if (px < b.x + 5 && px + 30 > b.x - 5 && py < b.y + 5 && py + 40 > b.y - 5) {
-            setIsGameOver(true); return;
-          }
+          b.x -= speed; b.y += 4; 
+          ctx.beginPath(); ctx.arc(b.x, b.y, 6, 0, Math.PI*2); ctx.fill();
+          if (px < b.x + 6 && px + 30 > b.x - 6 && py < b.y + 6 && py + 35 > b.y - 6) { setIsGameOver(true); return; }
           if (b.y > canvas.height) enemyBullets.splice(i, 1);
         }
         ctx.shadowBlur = 0;
 
-        // Obstacles
+        // Obstacles (Drawn Custom)
         for (let i = obstacles.length - 1; i >= 0; i--) {
-          const o = obstacles[i];
-          o.x -= speed;
-          
+          const o = obstacles[i]; o.x -= speed;
           let oy = canvas.height - 40 - o.h;
-          if (o.type === 'drone') {
-            oy = canvas.height - 40 - 110 + Math.sin(frame*0.1)*15;
-            // Drone fires randomly!
-            if (Math.random() < 0.02 && o.x > px) enemyBullets.push({x: o.x + 20, y: oy + 20});
+          
+          if (o.type === 'mine') {
+            ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 15; ctx.shadowColor = '#FF003C';
+            ctx.beginPath(); ctx.arc(o.x + o.w/2, oy + o.h/2, o.w/2, 0, Math.PI*2); ctx.fill();
+            // Pulse effect
+            ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(o.x + o.w/2, oy + o.h/2, (o.w/2) * Math.abs(Math.sin(frame*0.1)), 0, Math.PI*2); ctx.stroke();
+            ctx.shadowBlur = 0;
+          } else if (o.type === 'laser') {
+            ctx.fillStyle = '#FF8C00'; ctx.shadowBlur = 20; ctx.shadowColor = '#FF8C00';
+            ctx.fillRect(o.x, oy, o.w, o.h); ctx.shadowBlur = 0;
+          } else if (o.type === 'drone') {
+            oy = canvas.height - 40 - 120 + Math.sin(frame*0.1)*15;
+            ctx.fillStyle = '#B026FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF';
+            ctx.beginPath(); ctx.ellipse(o.x + o.w/2, oy + o.h/2, o.w/2, o.h/2, 0, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+            if (Math.random() < 0.015 && o.x > px) enemyBullets.push({x: o.x + 20, y: oy + 20});
           }
 
-          ctx.font = `${Math.max(o.w, o.h)}px Arial`;
-          ctx.fillText(o.emoji, o.x, oy);
-
-          // Hitbox collision
-          if (px < o.x + o.w - 10 && px + 30 > o.x + 10 && py < oy + o.h - 10 && py + 35 > oy + 10) {
+          if (px < o.x + o.w - 5 && px + 30 > o.x + 5 && py < oy + o.h - 5 && py + 35 > oy + 5) {
             setIsGameOver(true); return;
           }
 
@@ -408,7 +398,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-[#B026FF] mb-2 uppercase tracking-widest">Base Runner</h3>
-            <p className="text-white/60 mb-6 text-sm">Tap to Jump. Drones fire at Score 200+.</p>
+            <p className="text-white/60 mb-6 text-sm">Dodge Cyber-Mines. Drones drop Plasma at 200+.</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-[#B026FF] text-white font-bold">INITIALIZE</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back</Button>
           </div>
@@ -432,7 +422,7 @@ export function EndlessRunner({ onComplete, onExit }: any) {
 }
 
 // ==========================================
-// 3. NEON DEFENDER (Crash Proof + Alien Characters)
+// 3. NEON DEFENDER (Powerups & Vector Graphics)
 // ==========================================
 export function NeonDefender({ onComplete, onExit }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -449,9 +439,17 @@ export function NeonDefender({ onComplete, onExit }: any) {
     let playerX = canvas.width / 2;
     let lives = 3;
     let invulnTimer = 0;
-    let bullets: {x: number, y: number}[] = [];
+    
+    // Active Player Perks
+    let activeShield = 0;
+    let activeRapid = 0;
+    let activeSpread = 0;
+
+    let bullets: {x: number, y: number, dx: number, dy: number}[] = [];
     let enemyBullets: {x: number, y: number}[] = [];
-    let enemies: {x: number, y: number, r: number, type: 'grunt'|'brute'|'hunter', emoji: string, hp: number}[] = [];
+    let enemies: {x: number, y: number, r: number, type: 'scout'|'hunter', rot: number, hp: number}[] = [];
+    let powerups: {x: number, y: number, type: 'shield'|'rapid'|'spread', color: string}[] = [];
+    
     let currentScore = 0;
     let frame = 0;
     let lastFire = 0;
@@ -463,30 +461,53 @@ export function NeonDefender({ onComplete, onExit }: any) {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         frame++;
 
+        // Timers
         if (invulnTimer > 0) invulnTimer--;
+        if (activeShield > 0) activeShield--;
+        if (activeRapid > 0) activeRapid--;
+        if (activeSpread > 0) activeSpread--;
 
+        // UI
         ctx.font = "24px Arial"; ctx.textAlign = 'right';
         let hearts = ""; for(let i=0; i<3; i++) hearts += i < lives ? "❤️ " : "🖤 ";
         ctx.fillText(hearts, canvas.width - 20, 40);
+        
+        let perkText = "";
+        if (activeShield > 0) perkText += "SHIELD ";
+        if (activeRapid > 0) perkText += "RAPID ";
+        if (activeSpread > 0) perkText += "SPREAD ";
+        if (perkText !== "") {
+          ctx.fillStyle = '#00F0FF'; ctx.textAlign = 'center'; ctx.font = "bold 16px Arial";
+          ctx.fillText(perkText + "ACTIVE", canvas.width/2, 40);
+        }
 
-        let spawnRate = Math.max(30, 90 - Math.floor(currentScore / 15));
+        // Enemy Spawner
+        let spawnRate = Math.max(30, 80 - Math.floor(currentScore / 20));
         if (frame % spawnRate === 0) {
-          const rand = Math.random();
-          let type: 'grunt'|'brute'|'hunter' = 'grunt';
-          let emoji = '👾'; let hp = 1; let r = 25;
-          
-          if (currentScore > 100 && rand < 0.2) { type = 'brute'; emoji = '👹'; hp = 3; r = 35; }
-          else if (currentScore > 200 && rand < 0.5) { type = 'hunter'; emoji = '🛸'; hp = 1; r = 25; }
-
-          enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r, type, emoji, hp });
+          const isHunter = currentScore > 150 && Math.random() < 0.4;
+          enemies.push({ x: Math.random()*(canvas.width-60)+30, y: -30, r: isHunter ? 25 : 20, type: isHunter ? 'hunter' : 'scout', rot: 0, hp: isHunter ? 2 : 1 });
         }
 
-        if (frame - lastFire > 12) {
-          bullets.push({ x: playerX, y: canvas.height - 50 }); lastFire = frame;
+        // Player Auto-Fire (Handles Rapid & Spread)
+        const fireRate = activeRapid > 0 ? 6 : 14;
+        if (frame - lastFire > fireRate) {
+          bullets.push({ x: playerX, y: canvas.height - 50, dx: 0, dy: -15 });
+          if (activeSpread > 0) {
+            bullets.push({ x: playerX, y: canvas.height - 50, dx: -3, dy: -14 });
+            bullets.push({ x: playerX, y: canvas.height - 50, dx: 3, dy: -14 });
+          }
+          lastFire = frame;
         }
 
+        // Draw Player
         if (invulnTimer === 0 || Math.floor(frame / 5) % 2 === 0) {
           ctx.save(); ctx.translate(playerX, canvas.height - 40);
+          
+          if (activeShield > 0) {
+            ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2);
+            ctx.strokeStyle = '#00F0FF'; ctx.lineWidth = 2; ctx.stroke();
+          }
+
           ctx.fillStyle = '#00F0FF'; ctx.shadowBlur = 15; ctx.shadowColor = '#00F0FF';
           ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(-15, 15); ctx.lineTo(0, 5); ctx.lineTo(15, 15); ctx.closePath();
           ctx.fill(); ctx.shadowBlur = 0;
@@ -494,17 +515,34 @@ export function NeonDefender({ onComplete, onExit }: any) {
           ctx.restore();
         }
 
+        // Powerups Draw & Logic
+        for (let i = powerups.length - 1; i >= 0; i--) {
+          const p = powerups[i]; p.y += 3;
+          ctx.fillStyle = p.color; ctx.shadowBlur = 15; ctx.shadowColor = p.color;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+          
+          if (Math.hypot(p.x - playerX, p.y - (canvas.height - 40)) < 25) {
+            if (p.type === 'shield') activeShield = 600; // 10s
+            if (p.type === 'rapid') activeRapid = 450;
+            if (p.type === 'spread') activeSpread = 450;
+            powerups.splice(i, 1); continue;
+          }
+          if (p.y > canvas.height) powerups.splice(i, 1);
+        }
+
+        // Player Bullets
         ctx.fillStyle = '#FFF'; ctx.shadowBlur = 10; ctx.shadowColor = '#FFF';
         for (let i = bullets.length - 1; i >= 0; i--) {
-          const b = bullets[i]; b.y -= 15; ctx.fillRect(b.x - 2, b.y, 4, 15);
-          if (b.y < 0) bullets.splice(i, 1);
+          const b = bullets[i]; b.x += b.dx; b.y += b.dy; ctx.fillRect(b.x - 2, b.y, 4, 15);
+          if (b.y < 0 || b.x < 0 || b.x > canvas.width) bullets.splice(i, 1);
         }
         ctx.shadowBlur = 0;
 
+        // Enemy Bullets
         ctx.fillStyle = '#FF003C'; ctx.shadowBlur = 10; ctx.shadowColor = '#FF003C';
         for (let i = enemyBullets.length - 1; i >= 0; i--) {
-          const b = enemyBullets[i]; b.y += 8; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
-          if (invulnTimer <= 0 && Math.hypot(b.x - playerX, b.y - (canvas.height - 40)) < 15) {
+          const b = enemyBullets[i]; b.y += 7; ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
+          if (activeShield <= 0 && invulnTimer <= 0 && Math.hypot(b.x - playerX, b.y - (canvas.height - 40)) < 15) {
             lives--; invulnTimer = 60; enemyBullets.splice(i, 1);
             if (lives <= 0) { setIsGameOver(true); return; }
             continue;
@@ -513,29 +551,41 @@ export function NeonDefender({ onComplete, onExit }: any) {
         }
         ctx.shadowBlur = 0;
 
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        // Enemies
         for (let i = enemies.length - 1; i >= 0; i--) {
           const e = enemies[i];
+          e.rot += 0.05;
           
           if (e.type === 'hunter') {
             e.y += 1.5 + (currentScore * 0.002);
-            e.x += (playerX > e.x ? 1 : -1) * 0.5; // Tracks player slowly
-            if (Math.random() < 0.015) enemyBullets.push({ x: e.x, y: e.y + 10 });
+            e.x += (playerX > e.x ? 1 : -1) * 0.8; 
+            if (Math.random() < 0.02) enemyBullets.push({ x: e.x, y: e.y + 10 });
+            
+            ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
+            ctx.strokeStyle = '#FF003C'; ctx.lineWidth = 3; ctx.shadowBlur = 15; ctx.shadowColor = '#FF003C';
+            ctx.beginPath(); ctx.moveTo(0, -e.r); ctx.lineTo(e.r, e.r); ctx.lineTo(-e.r, e.r); ctx.closePath(); ctx.stroke();
+            ctx.restore();
           } else {
-            e.y += (e.type === 'brute' ? 1 : 2) + (currentScore * 0.003); 
+            e.y += 2.0 + (currentScore * 0.003); 
+            ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
+            ctx.strokeStyle = '#B026FF'; ctx.lineWidth = 3; ctx.shadowBlur = 15; ctx.shadowColor = '#B026FF';
+            ctx.beginPath(); ctx.rect(-e.r/2, -e.r/2, e.r, e.r); ctx.stroke();
+            ctx.restore();
           }
-
-          ctx.font = `${e.r * 1.5}px Arial`; ctx.fillText(e.emoji, e.x, e.y);
 
           let hit = false;
           for (let j = bullets.length - 1; j >= 0; j--) {
-            if (Math.hypot(bullets[j].x - e.x, bullets[j].y - e.y) < e.r) {
-              bullets.splice(j, 1);
-              e.hp--;
+            if (Math.hypot(bullets[j].x - e.x, bullets[j].y - e.y) < e.r + 5) {
+              bullets.splice(j, 1); e.hp--;
               if (e.hp <= 0) {
                 enemies.splice(i, 1);
-                currentScore += (e.type === 'brute' ? 30 : e.type === 'hunter' ? 20 : 10); 
-                setScore(currentScore);
+                currentScore += (e.type === 'hunter' ? 20 : 10); setScore(currentScore);
+                // Powerup Drop Logic (10% chance)
+                if (Math.random() < 0.1) {
+                  const pTypes = [{t:'shield',c:'#00F0FF'}, {t:'rapid',c:'#FFD700'}, {t:'spread',c:'#FF00FF'}];
+                  const pick = pTypes[Math.floor(Math.random()*pTypes.length)];
+                  powerups.push({ x: e.x, y: e.y, type: pick.t as any, color: pick.c });
+                }
                 hit = true;
               }
               break;
@@ -543,7 +593,7 @@ export function NeonDefender({ onComplete, onExit }: any) {
           }
           if (hit) continue;
 
-          if (invulnTimer <= 0 && Math.hypot(playerX - e.x, (canvas.height - 40) - e.y) < e.r + 15) {
+          if (activeShield <= 0 && invulnTimer <= 0 && Math.hypot(playerX - e.x, (canvas.height - 40) - e.y) < e.r + 15) {
             lives--; invulnTimer = 60; enemies.splice(i, 1);
             if (lives <= 0) { setIsGameOver(true); return; }
           } else if (e.y > canvas.height + 50) {
@@ -552,7 +602,7 @@ export function NeonDefender({ onComplete, onExit }: any) {
         }
 
         animId = requestAnimationFrame(loop);
-      } catch(e) { console.error("Render Error:", e); setIsGameOver(true); }
+      } catch(e) { console.error(e); setIsGameOver(true); }
     };
 
     const handleMove = (e: any) => { if(isPlaying) playerX = getMousePos(canvas, e).x; };
@@ -571,7 +621,7 @@ export function NeonDefender({ onComplete, onExit }: any) {
         {!isPlaying && !isGameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-10">
             <h3 className="text-4xl font-black text-white mb-2 uppercase tracking-widest drop-shadow-[0_0_15px_rgba(0,240,255,1)]">Neon Defender</h3>
-            <p className="text-white/80 mb-6 text-sm">Drag to Move. Watch out for Hunters.</p>
+            <p className="text-white/80 mb-6 text-sm">Drag to Move. Destroy Vectors for Power-ups.</p>
             <Button onClick={() => { setScore(0); setIsPlaying(true); setIsGameOver(false); }} className="px-12 py-4 bg-transparent border-2 border-[#00F0FF] text-[#00F0FF] hover:bg-[#00F0FF] hover:text-black font-bold">SCRAMBLE SHIP</Button>
             <Button variant="outline" onClick={onExit} className="mt-4 border-white/10">Back</Button>
           </div>
