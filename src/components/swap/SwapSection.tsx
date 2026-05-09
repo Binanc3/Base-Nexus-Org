@@ -4,11 +4,12 @@ import { erc20Abi, formatUnits, parseUnits, type Address } from 'viem';
 import { toast } from 'sonner';
 import { GlassCard, Button } from '../ui/GlassUI';
 import { Settings, ArrowDown, ChevronDown, Lock, Unlock, History, Activity, Search, X } from 'lucide-react';
-import { appendBuilderCode, hasBuilderCode } from '../../lib/wagmi';
+import { appendBuilderCode } from '../../lib/wagmi';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
 
-// Fully populated robust Top 30 Base token list for immediate local loading
+// STRICT HARDCODED LIST - NO API FETCHING WHATSOEVER
 const TOP_BASE_TOKENS = [
   { symbol: 'ETH', name: 'Ethereum', address: NATIVE_TOKEN_ADDRESS, decimals: 18, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png' },
   { symbol: 'USDC', name: 'USD Coin', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6, logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png' },
@@ -39,9 +40,10 @@ export function SwapSection() {
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
 
-  const [tokens, setTokens] = useState<any[]>(TOP_BASE_TOKENS);
-  const [fromToken, setFromToken] = useState<any>(TOP_BASE_TOKENS[0]); // ETH
-  const [toToken, setToToken] = useState<any>(TOP_BASE_TOKENS[1]); // USDC
+  // ONLY using the local constant now. Zero external fetching.
+  const [tokens] = useState<any[]>(TOP_BASE_TOKENS);
+  const [fromToken, setFromToken] = useState<any>(TOP_BASE_TOKENS[0]);
+  const [toToken, setToToken] = useState<any>(TOP_BASE_TOKENS[1]);
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState<any>(null);
   
@@ -59,35 +61,18 @@ export function SwapSection() {
     catch { return { totalVolume: 0, history: [] }; }
   });
 
-  // Background token fetch (adds extra obscure tokens but doesn't block the UI)
-  useEffect(() => {
-    fetch('https://li.quest/v1/tokens?chains=base')
-      .then(res => res.json())
-      .then(data => {
-        if (data.tokens && data.tokens[8453]) {
-          // Merge top tokens with the rest of the API response, removing duplicates
-          const apiTokens = data.tokens[8453];
-          const uniqueTokens = [...TOP_BASE_TOKENS];
-          apiTokens.forEach((t: any) => {
-            if (!uniqueTokens.find(ut => ut.address.toLowerCase() === t.address.toLowerCase())) {
-              uniqueTokens.push(t);
-            }
-          });
-          setTokens(uniqueTokens);
-        }
-      }).catch(err => console.error("Could not fetch extended token list", err));
-  }, []);
-
   const { data: fromBalance, refetch: refetchFromBalance } = useBalance({ address, token: fromToken?.address === NATIVE_TOKEN_ADDRESS ? undefined : fromToken?.address as Address });
   const { refetch: refetchToBalance } = useBalance({ address, token: toToken?.address === NATIVE_TOKEN_ADDRESS ? undefined : toToken?.address as Address });
 
+  // Quote fetching via LI.FI (required to get routing data for the swap)
   useEffect(() => {
     const fetchQuote = async () => {
       if (!amount || parseFloat(amount) <= 0 || !address) return setQuote(null);
       setIsFetchingQuote(true);
       try {
         const parsedAmount = parseUnits(amount, fromToken.decimals).toString();
-        const response = await fetch(`https://li.quest/v1/quote?fromChain=8453&toChain=8453&fromToken=${fromToken.address}&toToken=${toToken.address}&fromAmount=${parsedAmount}&fromAddress=${address}&slippage=${parseFloat(slippage) / 100}`);
+        const safeSlippage = parseFloat(slippage) > 0 ? parseFloat(slippage) / 100 : 0.005;
+        const response = await fetch(`https://li.quest/v1/quote?fromChain=8453&toChain=8453&fromToken=${fromToken.address}&toToken=${toToken.address}&fromAmount=${parsedAmount}&fromAddress=${address}&slippage=${safeSlippage}`);
         const data = await response.json();
         setQuote(data.transactionRequest ? data : null);
       } catch { setQuote(null); } finally { setIsFetchingQuote(false); }
@@ -112,14 +97,17 @@ export function SwapSection() {
       if (chainId !== 8453) await switchChainAsync({ chainId: 8453 });
 
       const rawData = (quote.transactionRequest.data as `0x${string}`) || '0x';
-      const finalData = hasBuilderCode(rawData) ? rawData : appendBuilderCode(rawData);
+      
+      let finalData = rawData;
+      try { finalData = appendBuilderCode(rawData) as `0x${string}`; } catch(e) { console.warn("Builder code skip", e); }
 
       if (fromToken.address !== NATIVE_TOKEN_ADDRESS) {
         toast.loading('Checking allowance…', { id: toastId });
-        const allowance = await publicClient.readContract({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'allowance', args: [address, quote.estimate.approvalAddress as Address] });
+        const approvalAddr = quote.estimate.approvalAddress || quote.transactionRequest.to;
+        const allowance = await publicClient.readContract({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'allowance', args: [address, approvalAddr as Address] });
         if (allowance < BigInt(quote.estimate.fromAmount)) {
           toast.loading('Approve token…', { id: toastId });
-          const tx = await writeContractAsync({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'approve', args: [quote.estimate.approvalAddress as Address, BigInt(quote.estimate.fromAmount)] });
+          const tx = await writeContractAsync({ address: fromToken.address as Address, abi: erc20Abi, functionName: 'approve', args: [approvalAddr as Address, BigInt(quote.estimate.fromAmount)] });
           await publicClient.waitForTransactionReceipt({ hash: tx });
         }
       }
@@ -143,11 +131,19 @@ export function SwapSection() {
       toast.success('Swap completed!', { id: toastId });
       if (!isAmountLocked) setAmount('');
     } catch (error: any) {
-      toast.error("Swap failed.", { id: toastId });
+      toast.error(error.message?.includes('funds') ? "Insufficient funds for gas." : "Swap failed.", { id: toastId });
     } finally { setIsSwapping(false); }
   };
 
-  const filteredTokens = tokens.filter(t => t.symbol.toLowerCase().includes(searchQuery.toLowerCase()) || t.address.toLowerCase() === searchQuery.toLowerCase());
+  // Safe search logic directly on our static token array
+  const safeSearch = (searchQuery || '').toLowerCase().trim();
+  const filteredTokens = tokens.filter(t => {
+    if (!t || !t.address) return false;
+    const symbol = (t.symbol || '').toLowerCase();
+    const name = (t.name || '').toLowerCase();
+    const tAddr = (t.address || '').toLowerCase();
+    return symbol.includes(safeSearch) || name.includes(safeSearch) || tAddr === safeSearch;
+  });
 
   return (
     <div className="w-full max-w-md mx-auto space-y-4">
