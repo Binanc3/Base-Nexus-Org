@@ -4,17 +4,20 @@
  * ContractDeployer — Fixed & Enhanced
  *
  * KEY FIXES vs original:
- *  1. REMOVED appendBuilderCode from deployment — builder codes belong on swap
- *     calldata ONLY. Appending arbitrary bytes to EVM init code corrupts the
- *     constructor args and causes reverts or broken contracts.
- *  2. useDeployContract (wagmi v2) instead of raw sendTransactionAsync — gives
- *     cleaner deploy flow and correct contractAddress from receipt.
- *  3. Robust contract address extraction: EOA receipt → Transfer mint log → log
- *     address filter. Handles both regular wallets and Coinbase Smart Wallet.
- *  4. wallet_watchAsset called correctly AFTER confirmed address is known.
- *  5. Supabase is now fully optional — fire-and-forget, never blocks the flow.
- *  6. SSR-safe localStorage helpers (no crash on Vercel server render).
- *  7. ERC721 now has base URI field + proper mint-1 for wallet_watchAsset NFT.
+ *  1. Builder code is injected CORRECTLY: encodeDeployData() runs first to lock
+ *     in bytecode + ABI-encoded constructor args, then appendBuilderCode() is
+ *     called on the complete payload. Solidity init code uses hardcoded byte
+ *     offsets to locate constructor args (not CODESIZE), so extra suffix bytes
+ *     never interfere with constructor execution. Original code applied builder
+ *     code before encoding — that was the corruption point.
+ *  2. sendTransactionAsync with no `to` field = EVM contract creation. This
+ *     lets us control the exact data field (builder code included).
+ *  3. Robust contract address extraction: EOA receipt → Transfer mint log →
+ *     log address filter. Handles regular wallets + Coinbase Smart Wallet.
+ *  4. wallet_watchAsset called AFTER confirmed address is known.
+ *  5. Supabase is fully optional — fire-and-forget, never blocks the deploy.
+ *  6. SSR-safe localStorage helpers (no Vercel server-render crash).
+ *  7. ERC721 has base URI + max supply fields.
  *
  * SUPABASE ENV VARS (set in Vercel + .env.local):
  *   NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
@@ -28,11 +31,12 @@ import {
   History, Trash2, Coins, ImageIcon, ChevronRight, Check,
   AlertCircle, Sparkles, Shield, Zap, Info
 } from 'lucide-react';
-import { useDeployContract, usePublicClient, useAccount } from 'wagmi';
-import { parseEther, type Address } from 'viem';
+import { usePublicClient, useAccount, useSendTransaction } from 'wagmi';
+import { parseEther, encodeDeployData } from 'viem';
 import { supabase } from '../../supabase';
 import { toast } from 'sonner';
 import { ERC20_ABI, ERC721_ABI, ERC20_BYTECODE, ERC721_BYTECODE } from '../../lib/contracts';
+import { appendBuilderCode } from '../../lib/wagmi';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -176,7 +180,7 @@ async function logDeployment(
 export function ContractDeployer() {
   const { address: userAddress, chainId } = useAccount();
   const publicClient = usePublicClient();
-  const { deployContractAsync } = useDeployContract();
+  const { sendTransactionAsync } = useSendTransaction();
 
   const [contractType, setContractType] = useState<ContractType>('ERC20');
   const [erc20, setERC20] = useState<ERC20Fields>({ name: '', symbol: '', supply: '1000000', decimals: '18' });
@@ -236,24 +240,34 @@ export function ContractDeployer() {
     try {
       const isERC20 = contractType === 'ERC20';
       const abi      = isERC20 ? ERC20_ABI  : ERC721_ABI;
-      const bytecode = (isERC20 ? ERC20_BYTECODE : ERC721_BYTECODE).startsWith('0x')
-        ? (isERC20 ? ERC20_BYTECODE : ERC721_BYTECODE) as `0x${string}`
-        : `0x${isERC20 ? ERC20_BYTECODE : ERC721_BYTECODE}` as `0x${string}`;
+      const rawBytecode = isERC20 ? ERC20_BYTECODE : ERC721_BYTECODE;
+      const bytecode = (rawBytecode.startsWith('0x') ? rawBytecode : `0x${rawBytecode}`) as `0x${string}`;
 
-      // ⚠️  DO NOT append builder code here.
-      //     Builder codes are referral tags for SWAP calldata — appending them to
-      //     EVM init code corrupts the constructor arguments and breaks deployment.
-      //     They only belong in swap transactions (see SwapSection).
       const args: any[] = isERC20
         ? [erc20.name, erc20.symbol, Number(erc20.decimals), parseEther(erc20.supply)]
         : [erc721.name, erc721.symbol];
 
+      // ── Builder code injection — correct order ────────────────────────────
+      // Step 1: encodeDeployData locks in the bytecode + ABI-encoded constructor
+      //         args as one contiguous buffer. Solidity init code locates its
+      //         constructor args using offsets compiled into the bytecode itself
+      //         (not via CODESIZE), so extra bytes appended AFTER the args are
+      //         never read by the constructor and don't affect execution.
+      // Step 2: appendBuilderCode appends your builder tag to the complete
+      //         encoded payload — safe to do AFTER encoding, not before.
+      const encodedDeployData = encodeDeployData({ abi, bytecode, args });
+      const finalData = appendBuilderCode(encodedDeployData);
+      // ─────────────────────────────────────────────────────────────────────
+
       setDeployStep('wallet');
       toast.loading('Awaiting wallet signature…', { id: toastId });
 
-      // useDeployContract sends a CREATE transaction (no `to` field) — the correct
-      // way to deploy a contract. wagmi v2 handles encoding internally.
-      const txHash = await deployContractAsync({ abi, bytecode, args });
+      // Sending with no `to` field signals EVM contract creation.
+      // wagmi/viem will omit the `to` field when it's undefined.
+      const txHash = await sendTransactionAsync({
+        data: finalData,
+        value: 0n,
+      });
 
       setDeployStep('broadcast');
       toast.loading('Broadcasting to Base network…', { id: toastId });
