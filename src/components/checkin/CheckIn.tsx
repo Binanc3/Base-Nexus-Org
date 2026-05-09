@@ -10,6 +10,7 @@ export function CheckIn() {
   const { address, isConnected } = useAccount();
   const { sendTransactionAsync } = useSendTransaction();
   const publicClient = usePublicClient();
+  
   const [streak, setStreak] = useState(0);
   const [totalCheckins, setTotalCheckins] = useState(0);
   const [hasGM, setHasGM] = useState(false);
@@ -19,95 +20,58 @@ export function CheckIn() {
 
   useEffect(() => {
     if (!address) return;
+    const fetchStats = async () => {
+      const { data } = await supabase.from('checkins').select('*').eq('user_address', address).order('created_at', { ascending: false });
+      if (!data) return;
 
-    const fetchCheckinStats = async () => {
-      try {
-        const { data, count } = await supabase
-          .from('checkins')
-          .select('*', { count: 'exact' })
-          .eq('user_address', address)
-          .order('created_at', { ascending: false });
+      setTotalCheckins(data.length);
+      const todayStr = new Date().toISOString().split('T')[0]; // Absolute UTC day
 
-        setTotalCheckins(count || 0);
+      const gmToday = data.find(c => c.checkin_type === 'GM' && c.created_at.startsWith(todayStr));
+      const gnToday = data.find(c => c.checkin_type === 'GN' && c.created_at.startsWith(todayStr));
 
-        if (data && data.length > 0) {
-          let currentStreak = 0;
-          const today = new Date();
-          const todayStr = today.toDateString();
-          today.setHours(0, 0, 0, 0);
+      setHasGM(!!gmToday);
+      setHasGN(!!gnToday);
 
-          const uniqueDays = new Set<number>();
-          data.forEach(checkin => {
-            const d = new Date(checkin.created_at);
-            d.setHours(0, 0, 0, 0);
-            uniqueDays.add(d.getTime());
-          });
-
-          const sortedDays = Array.from(uniqueDays).sort((a, b) => b - a);
-
-          if (sortedDays.length > 0) {
-            const lastCheckinDate = new Date(sortedDays[0]);
-            const diffDays = Math.floor((today.getTime() - lastCheckinDate.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 1) {
-              currentStreak = 1;
-              const checkDate = new Date(lastCheckinDate);
-              for (let i = 1; i < sortedDays.length; i++) {
-                checkDate.setDate(checkDate.getDate() - 1);
-                if (sortedDays[i] === checkDate.getTime()) currentStreak++;
-                else break;
-              }
-            }
-          }
-          setStreak(currentStreak);
-
-          const gmToday = data.find(c => c.checkin_type === 'GM' && new Date(c.created_at).toDateString() === todayStr);
-          const gnToday = data.find(c => c.checkin_type === 'GN' && new Date(c.created_at).toDateString() === todayStr);
-
-          setHasGM(!!gmToday);
-          setHasGN(!!gnToday);
-        }
-      } catch (err) {}
+      // Unique Day Streak Calc
+      const days = [...new Set(data.map(c => c.created_at.split('T')[0]))].sort((a,b) => (a < b ? 1 : -1));
+      let strk = 0;
+      let checkDate = new Date();
+      for (const d of days) {
+        const dStr = checkDate.toISOString().split('T')[0];
+        if (d === dStr) strk++;
+        else break;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+      setStreak(strk);
     };
-
-    fetchCheckinStats();
+    fetchStats();
   }, [address]);
 
   const handleCheckIn = async (type: 'GM' | 'GN') => {
-    if (!address || isPending || !isConnected) return toast.error('Connect wallet first');
-    if (type === 'GM' && hasGM) return toast.error('Already said GM today!');
-    if (type === 'GN' && hasGN) return toast.error('Already said GN today!');
+    if (!address || isPending || !isConnected) return toast.error('Connect wallet');
+    if (type === 'GM' && hasGM) return;
+    if (type === 'GN' && hasGN) return;
 
     setIsPending(true);
     setPendingType(type);
-    const toastId = toast.loading(`Confirm ${type} in wallet…`);
+    const tId = toast.loading(`Confirming ${type}...`);
 
     try {
-      const hexData = createLogData(type);
-      const finalData = appendBuilderCode(hexData as `0x${string}`);
-
-      const hash = await sendTransactionAsync({
-        to: "0x000000000000000000000000000000000000dEaD",
-        data: finalData,
-        value: 0n,
-      });
-
-      toast.loading('Confirming transaction...', { id: toastId });
-      if (publicClient) await publicClient.waitForTransactionReceipt({ hash, timeout: 60000 });
+      const finalData = appendBuilderCode(createLogData(type) as `0x${string}`);
+      const hash = await sendTransactionAsync({ to: "0x000000000000000000000000000000000000dEaD", data: finalData, value: 0n });
+      if (publicClient) await publicClient.waitForTransactionReceipt({ hash });
 
       await supabase.from('checkins').insert([{ user_address: address, checkin_type: type, tx_hash: hash }]);
 
       if (type === 'GM') setHasGM(true);
       if (type === 'GN') setHasGN(true);
-      if (type === 'GM' && !hasGN) setStreak(s => s + 1);
       setTotalCheckins(t => t + 1);
+      if (type === 'GM' && !hasGN) setStreak(s => s + 1);
 
-      toast.success(`${type} recorded successfully!`, { id: toastId });
+      toast.success(`${type} Etched on Base!`, { id: tId });
     } catch (err: any) {
-      let message = "Failed to complete check-in.";
-      if (err.message?.toLowerCase().includes('insufficient funds')) {
-         message = "Error: Need tiny Base ETH fraction for gas.";
-      }
-      toast.error(message, { id: toastId });
+      toast.error(err.message?.includes('funds') ? "Need gas." : "Failed.", { id: tId });
     } finally {
       setIsPending(false);
       setPendingType(null);
@@ -115,46 +79,30 @@ export function CheckIn() {
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-4 space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <GlassCard className="p-6 text-center border-zinc-800/50 bg-gradient-to-br from-zinc-900/50 to-black/50">
-          <div className="flex items-center justify-center gap-2 mb-2 text-zinc-400">
-            <Zap className="w-4 h-4 text-yellow-500" />
-            <h3 className="text-xs uppercase font-bold tracking-wider">Current Streak</h3>
-          </div>
-          <div className="text-4xl font-black text-white">{streak} <span className="text-lg text-zinc-500 font-normal">days</span></div>
+        <GlassCard className="p-6 text-center border-[#00F0FF]/20 bg-[#0a1224]">
+          <Zap className="w-5 h-5 text-[#00F0FF] mx-auto mb-2" />
+          <h3 className="text-xs uppercase font-bold text-zinc-500">Streak</h3>
+          <div className="text-4xl font-black text-white">{streak}</div>
         </GlassCard>
-
-        <GlassCard className="p-6 text-center border-zinc-800/50 bg-gradient-to-br from-zinc-900/50 to-black/50">
-          <div className="flex items-center justify-center gap-2 mb-2 text-zinc-400">
-            <Calendar className="w-4 h-4 text-blue-500" />
-            <h3 className="text-xs uppercase font-bold tracking-wider">Total Check-ins</h3>
-          </div>
+        <GlassCard className="p-6 text-center border-[#B026FF]/20 bg-[#0a1224]">
+          <Calendar className="w-5 h-5 text-[#B026FF] mx-auto mb-2" />
+          <h3 className="text-xs uppercase font-bold text-zinc-500">Total</h3>
           <div className="text-4xl font-black text-white">{totalCheckins}</div>
         </GlassCard>
       </div>
 
-      <GlassCard className="p-8 border-zinc-800/50 text-center relative overflow-hidden">
-        <h2 className="text-2xl font-bold text-white mb-2 relative z-10">Daily Check-in</h2>
-        <p className="text-zinc-400 text-sm mb-8 relative z-10">Prove your presence on the Base network.</p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 relative z-10">
-          <Button
-            onClick={() => handleCheckIn('GM')}
-            disabled={isPending || hasGM}
-            className={`h-24 flex flex-col items-center justify-center gap-2 text-lg font-bold transition-all duration-300 ${hasGM ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
-          >
-            {isPending && pendingType === 'GM' ? <Loader2 className="w-6 h-6 animate-spin" /> : hasGM ? <CheckCircle2 className="w-6 h-6 text-green-500" /> : <Sun className="w-6 h-6" />}
-            <span>Good Morning</span>
+      <GlassCard className="p-8 border-zinc-800 bg-[#050b14] text-center">
+        <h2 className="text-2xl font-black text-white mb-6">Daily Verification</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Button onClick={() => handleCheckIn('GM')} disabled={isPending || hasGM} className={`h-24 text-lg font-black transition-all ${hasGM ? 'bg-zinc-900 text-zinc-600' : 'bg-gradient-to-r from-[#00F0FF] to-blue-500 text-black shadow-[0_0_20px_rgba(0,240,255,0.3)]'}`}>
+            {isPending && pendingType === 'GM' ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : hasGM ? <CheckCircle2 className="w-6 h-6 mx-auto text-green-500" /> : <Sun className="w-6 h-6 mx-auto mb-2" />}
+            {hasGM ? 'GM Logged' : 'Good Morning'}
           </Button>
-
-          <Button
-            onClick={() => handleCheckIn('GN')}
-            disabled={isPending || hasGN}
-            className={`h-24 flex flex-col items-center justify-center gap-2 text-lg font-bold transition-all duration-300 ${hasGN ? 'bg-zinc-800/50 text-zinc-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'}`}
-          >
-            {isPending && pendingType === 'GN' ? <Loader2 className="w-6 h-6 animate-spin" /> : hasGN ? <CheckCircle2 className="w-6 h-6 text-green-500" /> : <Moon className="w-6 h-6" />}
-            <span>Good Night</span>
+          <Button onClick={() => handleCheckIn('GN')} disabled={isPending || hasGN} className={`h-24 text-lg font-black transition-all ${hasGN ? 'bg-zinc-900 text-zinc-600' : 'bg-gradient-to-r from-[#B026FF] to-purple-600 text-white shadow-[0_0_20px_rgba(176,38,255,0.3)]'}`}>
+            {isPending && pendingType === 'GN' ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : hasGN ? <CheckCircle2 className="w-6 h-6 mx-auto text-green-500" /> : <Moon className="w-6 h-6 mx-auto mb-2" />}
+            {hasGN ? 'GN Logged' : 'Good Night'}
           </Button>
         </div>
       </GlassCard>
